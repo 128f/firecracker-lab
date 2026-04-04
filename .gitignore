@@ -1,0 +1,5 @@
+firecracker-v1.14.3-x86_64.tgz
+release-v1.14.3-x86_64/**
+ubuntu-24.04.squashfs
+rootfs.ext4
+vmlinux.bin
