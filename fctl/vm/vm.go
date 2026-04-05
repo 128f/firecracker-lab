@@ -236,7 +236,8 @@ func apiPut(sock, path string, body any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("API %s returned %d", path, resp.StatusCode)
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API %s returned %d: %s", path, resp.StatusCode, respBody)
 	}
 	return nil
 }
