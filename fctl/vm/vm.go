@@ -65,13 +65,12 @@ func (r *Runner) Create(vm *state.VM) error {
 		return fmt.Errorf("link kernel: %w", err)
 	}
 
-	r.log().Info("creating CoW overlay", "vm", vm.ID)
+	r.log().Info("copying rootfs", "vm", vm.ID)
 	baseRootfs := filepath.Join(r.LabDir, "rootfs.ext4")
-	overlay := filepath.Join(root, "rootfs.qcow2")
-	out, err := exec.Command("qemu-img", "create", "-f", "qcow2",
-		"-b", baseRootfs, "-F", "raw", overlay).CombinedOutput()
+	vmRootfs := filepath.Join(root, "rootfs.ext4")
+	out, err := exec.Command("cp", "--reflink=auto", baseRootfs, vmRootfs).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("qemu-img: %s: %w", out, err)
+		return fmt.Errorf("cp rootfs: %s: %w", out, err)
 	}
 
 	r.log().Info("configuring tap device", "vm", vm.ID, "tap", vm.Tap)
@@ -192,7 +191,7 @@ func (r *Runner) bootVM(vm *state.VM, sock string) error {
 	}
 	if err := apiPut(sock, "/drives/rootfs", map[string]any{
 		"drive_id":       "rootfs",
-		"path_on_host":   "/rootfs.qcow2",
+		"path_on_host":   "/rootfs.ext4",
 		"is_root_device": true,
 		"is_read_only":   false,
 	}); err != nil {

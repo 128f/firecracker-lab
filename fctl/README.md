@@ -7,7 +7,6 @@ CLI for managing jailed Firecracker microVMs.
 - `firecracker` and `jailer` binaries (see parent Makefile: `make deps`)
 - `vmlinux.bin` kernel
 - `rootfs.ext4` base image
-- `qemu-img` on PATH
 - Run as root
 
 ## One-time host setup
@@ -50,7 +49,7 @@ For each VM, create:
 1. Allocates ID, tap name, IP, vsock CID from state.json
 2. Creates `vms/<id>/root/` chroot directory
 3. Hard-links `vmlinux.bin` into the chroot (no duplication)
-4. Creates `rootfs.qcow2` CoW overlay backed by shared `rootfs.ext4`
+4. Copies `rootfs.ext4` into the chroot (reflink if supported)
 5. Symlinks `/srv/jailer/firecracker/<id>` → `vms/<id>`
 6. Creates tap device, attaches to `br0`
 7. Launches jailer (which exec's firecracker inside chroot + cgroups)
@@ -90,7 +89,7 @@ vms/
   vm0/
     root/
       vmlinux.bin       ← hard link to lab root
-      rootfs.qcow2      ← CoW overlay backed by rootfs.ext4
+      rootfs.ext4        ← copy of base rootfs (reflink when possible)
       run/
         firecracker.socket
     firecracker.pid
@@ -105,8 +104,7 @@ NAT/forwarding is not configured by fctl — add iptables rules manually if VMs 
 ## Resource sharing
 
 - Kernel (`vmlinux.bin`) — one copy on disk, hard-linked into each chroot
-- Base rootfs (`rootfs.ext4`) — read-only, shared across all VMs as qcow2 backing file
-- Per-VM rootfs (`rootfs.qcow2`) — only diverging writes stored
+- Per-VM rootfs (`rootfs.ext4`) — copied per VM; uses reflink (CoW) on filesystems that support it (btrfs, xfs)
 - Cgroup parent (`/sys/fs/cgroup/fctl/`) — set pool-wide limits here; jailer creates per-VM leaf cgroups beneath it
 
 ## Recovery
