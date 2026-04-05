@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -102,11 +103,19 @@ func (r *Runner) Start(vm *state.VM) error {
 	}
 
 	cmd := exec.Command(r.JailerBin, args...)
-	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("jailer start: %w", err)
 	}
+	go r.consoleListener(vm.ID, stdin, stdout)
 
 	if err := os.WriteFile(r.pidPath(vm.ID), []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
 		return err
@@ -155,13 +164,26 @@ func (r *Runner) IsAlive(id string) bool {
 	return err == nil
 }
 
-func (r *Runner) bootVM(vm *state.VM, sock string) error {
-	if err := apiPut(sock, "/uart/1", map[string]any{
-		"socket_path": "/run/console.sock",
-		"mode":        "Unix",
-	}); err != nil {
-		return err
+func (r *Runner) consoleListener(id string, stdin io.WriteCloser, stdout io.ReadCloser) {
+	path := r.ConsolePath(id)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		r.log().Error("console listener", "vm", id, "err", err)
+		return
 	}
+	defer ln.Close()
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go io.Copy(stdin, conn)
+		io.Copy(conn, stdout)
+		conn.Close()
+	}
+}
+
+func (r *Runner) bootVM(vm *state.VM, sock string) error {
 	if err := apiPut(sock, "/boot-source", map[string]string{
 		"kernel_image_path": "/vmlinux.bin",
 		"boot_args": fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off ip=%s::172.16.0.1:255.255.255.0::eth0:off", vm.IP),
