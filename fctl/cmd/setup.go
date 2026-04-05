@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -11,6 +12,7 @@ import (
 var (
 	flagSetupUID int
 	flagSetupGID int
+	flagSetupWAN string
 )
 
 var setupCmd = &cobra.Command{
@@ -19,10 +21,34 @@ var setupCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		uid := fmt.Sprintf("%d", flagSetupUID)
 		gid := fmt.Sprintf("%d", flagSetupGID)
+
+		wan := flagSetupWAN
+		if wan == "" {
+			out, err := exec.Command("ip", "route", "show", "default").Output()
+			if err != nil {
+				return fmt.Errorf("could not detect default route interface: %w (use --wan to set manually)", err)
+			}
+			fields := strings.Fields(string(out))
+			for i, f := range fields {
+				if f == "dev" && i+1 < len(fields) {
+					wan = fields[i+1]
+					break
+				}
+			}
+			if wan == "" {
+				return fmt.Errorf("no default route found (use --wan to set manually)")
+			}
+			fmt.Printf("detected WAN interface: %s\n", wan)
+		}
+
 		steps := [][]string{
 			{"ip", "link", "add", "br0", "type", "bridge"},
 			{"ip", "addr", "add", "172.16.0.1/24", "dev", "br0"},
 			{"ip", "link", "set", "br0", "up"},
+			{"sysctl", "-w", "net.ipv4.ip_forward=1"},
+			{"iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "172.16.0.0/24", "-o", wan, "-j", "MASQUERADE"},
+			{"iptables", "-A", "FORWARD", "-i", "br0", "-o", wan, "-j", "ACCEPT"},
+			{"iptables", "-A", "FORWARD", "-i", wan, "-o", "br0", "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
 			{"mkdir", "-p", "/srv/jailer/firecracker"},
 			{"mkdir", "-p", "/sys/fs/cgroup/fctl"},
 			{"groupadd", "--system", "-g", gid, "fctl-vm"},
@@ -43,4 +69,5 @@ var setupCmd = &cobra.Command{
 func init() {
 	setupCmd.Flags().IntVar(&flagSetupUID, "uid", 123, "uid for jailer vm user")
 	setupCmd.Flags().IntVar(&flagSetupGID, "gid", 123, "gid for jailer vm user")
+	setupCmd.Flags().StringVar(&flagSetupWAN, "wan", "", "WAN interface for NAT (auto-detected from default route if empty)")
 }
