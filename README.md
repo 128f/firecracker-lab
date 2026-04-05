@@ -3,7 +3,7 @@
 ## Dependencies
 
 ```
-sudo pacman -S squashfs-tools e2fsprogs curl
+sudo pacman -S squashfs-tools e2fsprogs curl qemu-img
 ```
 
 ## Setup

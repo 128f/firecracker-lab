@@ -8,9 +8,12 @@ VMLINUX_URL := https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.14/$(ARC
 ROOTFS_URL := https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.14/$(ARCH)/ubuntu-24.04.squashfs
 ROOTFS_SIZE := 512M
 
-.PHONY: deps clean
+.PHONY: deps fctl clean
 
 deps: $(FIRECRACKER_RELEASE_DIR) vmlinux.bin rootfs.ext4
+
+fctl:
+	cd fctl && go build -o ../fctl .
 
 $(FIRECRACKER_TGZ):
 	curl -Lo $@ $(FIRECRACKER_URL)

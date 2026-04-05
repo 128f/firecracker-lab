@@ -3,3 +3,6 @@ release-v1.14.3-x86_64/**
 ubuntu-24.04.squashfs
 rootfs.ext4
 vmlinux.bin
+vms/
+state.json
+fctl/fctl
