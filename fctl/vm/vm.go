@@ -107,6 +107,8 @@ func (r *Runner) Start(vm *state.VM) error {
 		"--cgroup-version", "2",
 		"--",
 		"--api-sock", "/run/firecracker.socket",
+		"--log-path", "/run/firecracker.log",
+		"--level", "Debug",
 	}
 
 	cmd := exec.Command(r.JailerBin, args...)
