@@ -18,7 +18,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&fcBin, "firecracker", "firecracker", "path to firecracker binary")
 
 	rootCmd.AddCommand(setupCmd)
-	rootCmd.AddCommand(createCmd)
+	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(destroyCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(consoleCmd)

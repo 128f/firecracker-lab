@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/128f/fctl/state"
@@ -48,10 +50,61 @@ func (r *Runner) ConsolePath(id string) string {
 }
 
 func (r *Runner) pidPath(id string) string {
-	return filepath.Join(r.vmDir(id), "firecracker.pid")
+	return filepath.Join(r.vmDir(id), "fctl.pid")
 }
 
-func (r *Runner) Create(vm *state.VM) error {
+func (r *Runner) Run(vm *state.VM, detach bool) error {
+	if err := r.setupChroot(vm); err != nil {
+		return err
+	}
+	if err := r.setupTap(vm); err != nil {
+		return err
+	}
+
+	cmd, err := r.launchJailer(vm, detach)
+	if err != nil {
+		return err
+	}
+
+	// Write the fctl process PID (ourselves) so destroy can kill us.
+	if err := os.WriteFile(r.pidPath(vm.ID), []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+		return err
+	}
+
+	sock := r.socketPath(vm.ID)
+	r.log().Info("waiting for API socket", "vm", vm.ID, "path", sock)
+	if err := waitForSocket(sock, 5*time.Second); err != nil {
+		return fmt.Errorf("socket never appeared at %s: %w", sock, err)
+	}
+
+	if err := r.bootVM(vm, sock); err != nil {
+		return err
+	}
+
+	if detach {
+		r.log().Info("VM running in background", "vm", vm.ID)
+		return nil
+	}
+
+	// Foreground: wait for jailer to exit or Ctrl+C.
+	r.log().Info("VM running in foreground, press Ctrl+C to stop", "vm", vm.ID)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-sig:
+		r.log().Info("signal received, killing VM", "vm", vm.ID)
+		cmd.Process.Kill()
+		return nil
+	}
+}
+
+func (r *Runner) setupChroot(vm *state.VM) error {
 	root := filepath.Join(r.vmDir(vm.ID), "root")
 	runDir := filepath.Join(root, "run")
 
@@ -85,6 +138,10 @@ func (r *Runner) Create(vm *state.VM) error {
 		return fmt.Errorf("chown rootfs: %w", err)
 	}
 
+	return nil
+}
+
+func (r *Runner) setupTap(vm *state.VM) error {
 	r.log().Info("configuring tap device", "vm", vm.ID, "tap", vm.Tap)
 	if err := run("ip", "tuntap", "add", vm.Tap, "mode", "tap"); err != nil {
 		return fmt.Errorf("create tap: %w", err)
@@ -95,11 +152,10 @@ func (r *Runner) Create(vm *state.VM) error {
 	if err := run("ip", "link", "set", vm.Tap, "up"); err != nil {
 		return fmt.Errorf("tap up: %w", err)
 	}
-
 	return nil
 }
 
-func (r *Runner) Start(vm *state.VM) error {
+func (r *Runner) launchJailer(vm *state.VM, detach bool) (*exec.Cmd, error) {
 	args := []string{
 		"--id", vm.ID,
 		"--exec-file", r.FirecrackerBin,
@@ -115,30 +171,29 @@ func (r *Runner) Start(vm *state.VM) error {
 
 	cmd := exec.Command(r.JailerBin, args...)
 	cmd.Stderr = os.Stderr
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("jailer start: %w", err)
-	}
-	go r.consoleListener(vm.ID, stdin, stdout)
 
-	if err := os.WriteFile(r.pidPath(vm.ID), []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
-		return err
+	if detach {
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			return nil, fmt.Errorf("stdin pipe: %w", err)
+		}
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, fmt.Errorf("stdout pipe: %w", err)
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("jailer start: %w", err)
+		}
+		go r.consoleListener(vm.ID, stdin, stdout)
+	} else {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("jailer start: %w", err)
+		}
 	}
 
-	sock := r.socketPath(vm.ID)
-	fmt.Fprintf(os.Stderr, "waiting for socket: %s\n", sock)
-	if err := waitForSocket(sock, 5*time.Second); err != nil {
-		return fmt.Errorf("socket never appeared at %s: %w", sock, err)
-	}
-
-	return r.bootVM(vm, sock)
+	return cmd, nil
 }
 
 func (r *Runner) Destroy(vm *state.VM) error {
