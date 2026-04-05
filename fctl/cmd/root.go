@@ -4,7 +4,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var labDir string
+var (
+	labDir string
+	fcBin  string
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "fctl",
@@ -12,6 +15,8 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&fcBin, "firecracker", "firecracker", "path to firecracker binary")
+
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(createCmd)
 	rootCmd.AddCommand(destroyCmd)

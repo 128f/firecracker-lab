@@ -20,7 +20,7 @@ var listCmd = &cobra.Command{
 			fmt.Println("no VMs")
 			return nil
 		}
-		r := &vm.Runner{LabDir: labDir}
+		r := &vm.Runner{LabDir: labDir, FirecrackerBin: fcBin}
 		fmt.Printf("%-8s %-8s %-16s %-6s %s\n", "ID", "TAP", "IP", "CID", "STATUS")
 		for _, v := range s.VMs {
 			status := "stopped"

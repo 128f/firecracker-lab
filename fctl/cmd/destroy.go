@@ -22,7 +22,7 @@ var destroyCmd = &cobra.Command{
 		if !ok {
 			return fmt.Errorf("unknown VM: %s", id)
 		}
-		r := &vm.Runner{LabDir: labDir}
+		r := &vm.Runner{LabDir: labDir, FirecrackerBin: fcBin}
 		fmt.Printf("destroying %s...\n", id)
 		if err := r.Destroy(v); err != nil {
 			return err

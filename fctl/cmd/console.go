@@ -27,7 +27,7 @@ var consoleCmd = &cobra.Command{
 			return fmt.Errorf("unknown VM: %s", id)
 		}
 
-		r := &vm.Runner{LabDir: labDir}
+		r := &vm.Runner{LabDir: labDir, FirecrackerBin: fcBin}
 		sock := r.ConsolePath(id)
 
 		conn, err := net.Dial("unix", sock)

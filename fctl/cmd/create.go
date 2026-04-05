@@ -13,7 +13,6 @@ var (
 	flagMemMiB    int
 	flagCount     int
 	flagJailerBin string
-	flagFCBin     string
 	flagUID       int
 	flagGID       int
 )
@@ -30,7 +29,7 @@ var createCmd = &cobra.Command{
 		r := &vm.Runner{
 			LabDir:         labDir,
 			JailerBin:      flagJailerBin,
-			FirecrackerBin: flagFCBin,
+			FirecrackerBin: fcBin,
 			UID:            flagUID,
 			GID:            flagGID,
 		}
@@ -70,7 +69,6 @@ func init() {
 	createCmd.Flags().IntVar(&flagMemMiB, "mem", 256, "memory in MiB")
 	createCmd.Flags().IntVar(&flagCount, "count", 1, "number of VMs to create")
 	createCmd.Flags().StringVar(&flagJailerBin, "jailer", "jailer", "path to jailer binary")
-	createCmd.Flags().StringVar(&flagFCBin, "firecracker", "firecracker", "path to firecracker binary")
 	createCmd.Flags().IntVar(&flagUID, "uid", 123, "uid for jailer vm user")
 	createCmd.Flags().IntVar(&flagGID, "gid", 123, "gid for jailer vm user")
 }
