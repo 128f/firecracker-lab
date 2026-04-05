@@ -58,11 +58,20 @@ func (r *Runner) Create(vm *state.VM) error {
 	if err := os.MkdirAll(runDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
+	for _, d := range []string{root, runDir} {
+		if err := os.Chown(d, r.UID, r.GID); err != nil {
+			return fmt.Errorf("chown %s: %w", d, err)
+		}
+	}
 
 	r.log().Info("hard-linking kernel", "vm", vm.ID)
 	kernel := filepath.Join(r.LabDir, "vmlinux.bin")
-	if err := os.Link(kernel, filepath.Join(root, "vmlinux.bin")); err != nil && !os.IsExist(err) {
+	kernelDst := filepath.Join(root, "vmlinux.bin")
+	if err := os.Link(kernel, kernelDst); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("link kernel: %w", err)
+	}
+	if err := os.Chown(kernelDst, r.UID, r.GID); err != nil {
+		return fmt.Errorf("chown kernel: %w", err)
 	}
 
 	r.log().Info("copying rootfs", "vm", vm.ID)
@@ -71,6 +80,9 @@ func (r *Runner) Create(vm *state.VM) error {
 	out, err := exec.Command("cp", "--reflink=auto", baseRootfs, vmRootfs).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("cp rootfs: %s: %w", out, err)
+	}
+	if err := os.Chown(vmRootfs, r.UID, r.GID); err != nil {
+		return fmt.Errorf("chown rootfs: %w", err)
 	}
 
 	r.log().Info("configuring tap device", "vm", vm.ID, "tap", vm.Tap)
