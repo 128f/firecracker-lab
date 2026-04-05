@@ -16,10 +16,7 @@ import (
 	"github.com/128f/fctl/state"
 )
 
-const (
-	jailerBasePath = "/srv/jailer/firecracker"
-	bridgeName     = "br0"
-)
+const bridgeName = "br0"
 
 type Runner struct {
 	LabDir         string
@@ -38,7 +35,7 @@ func (r *Runner) log() *slog.Logger {
 }
 
 func (r *Runner) vmDir(id string) string {
-	return filepath.Join(r.LabDir, "vms", id)
+	return filepath.Join(r.LabDir, "vms", filepath.Base(r.FirecrackerBin), id)
 }
 
 func (r *Runner) socketPath(id string) string {
@@ -74,13 +71,6 @@ func (r *Runner) Create(vm *state.VM) error {
 		"-b", baseRootfs, "-F", "raw", overlay).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("qemu-img: %s: %w", out, err)
-	}
-
-	r.log().Info("symlinking into jailer path", "vm", vm.ID)
-	jailerLink := filepath.Join(jailerBasePath, vm.ID)
-	os.Remove(jailerLink)
-	if err := os.Symlink(r.vmDir(vm.ID), jailerLink); err != nil {
-		return fmt.Errorf("symlink jailer: %w", err)
 	}
 
 	r.log().Info("configuring tap device", "vm", vm.ID, "tap", vm.Tap)
@@ -123,8 +113,9 @@ func (r *Runner) Start(vm *state.VM) error {
 	}
 
 	sock := r.socketPath(vm.ID)
+	fmt.Fprintf(os.Stderr, "waiting for socket: %s\n", sock)
 	if err := waitForSocket(sock, 5*time.Second); err != nil {
-		return fmt.Errorf("socket never appeared: %w", err)
+		return fmt.Errorf("socket never appeared at %s: %w", sock, err)
 	}
 
 	return r.bootVM(vm, sock)
@@ -148,9 +139,6 @@ func (r *Runner) Destroy(vm *state.VM) error {
 	r.log().Info("removing tap device", "vm", vm.ID, "tap", vm.Tap)
 	_ = run("ip", "link", "set", vm.Tap, "down")
 	_ = run("ip", "tuntap", "del", vm.Tap, "mode", "tap")
-
-	r.log().Info("removing jailer symlink", "vm", vm.ID)
-	os.Remove(filepath.Join(jailerBasePath, vm.ID))
 
 	r.log().Info("removing vm dir", "vm", vm.ID)
 	return os.RemoveAll(r.vmDir(vm.ID))
