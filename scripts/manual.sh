@@ -1,4 +1,6 @@
-
+#
+# this is an old script that illustrates manual steps
+# these were converted into a CLI tool
 echo "adding kernel image"
 curl -X PUT 'http://localhost/boot-source' \
   --unix-socket /tmp/firecracker.socket \

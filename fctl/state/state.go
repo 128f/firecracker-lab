@@ -51,7 +51,7 @@ func (s *State) Remove(id string) error {
 	return s.Save()
 }
 
-// NextID returns the next available vm ID and index.
+// NextAlloc returns the next available vm ID and index.
 func (s *State) NextAlloc() (id string, tapIdx int, ip string, cid int) {
 	used := make(map[int]bool)
 	for _, vm := range s.VMs {
@@ -69,9 +69,9 @@ func (s *State) NextAlloc() (id string, tapIdx int, ip string, cid int) {
 	panic("no available slots")
 }
 
-func tapName(i int) string  { return fmt.Sprintf("tap%d", i) }
-func vmID(i int) string     { return fmt.Sprintf("vm%d", i) }
-func vmIP(i int) string     { return fmt.Sprintf("172.16.%d.%d", (i+2)/254, (i+2)%254+1) }
+func tapName(i int) string { return fmt.Sprintf("tap%d", i) }
+func vmID(i int) string    { return fmt.Sprintf("vm%d", i) }
+func vmIP(i int) string    { return fmt.Sprintf("172.16.%d.%d", (i+2)/254, (i+2)%254+1) }
 
 // StatePath returns the default state.json path relative to labDir.
 func StatePath(labDir string) string {

@@ -27,25 +27,25 @@ This creates:
 ### create
 
 ```bash
-sudo ./fctl create [flags]
+sudo ./fctl run [flags]
 ```
 
 Flags:
 - `--vcpus 1` — vCPU count per VM
 - `--mem 256` — memory in MiB per VM
-- `--count 1` — number of VMs to create
+- `--count 1` — number of VMs to run
 - `--jailer path` — path to jailer binary (default: `jailer` on $PATH)
 - `--firecracker path` — path to firecracker binary (default: `firecracker` on $PATH)
 
 Example:
 ```bash
-sudo ./fctl create \
+sudo ./fctl run \
   --jailer ./release-v1.14.3-x86_64/jailer-v1.14.3-x86_64 \
   --firecracker ./release-v1.14.3-x86_64/firecracker-v1.14.3-x86_64 \
   --vcpus 1 --mem 256 --count 5
 ```
 
-For each VM, create:
+For each VM, the run command will:
 1. Allocates ID, tap name, IP, vsock CID from state.json
 2. Creates `vms/<id>/root/` chroot directory
 3. Hard-links `vmlinux.bin` into the chroot (no duplication)
