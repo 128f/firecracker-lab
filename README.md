@@ -3,11 +3,11 @@
 ## Dependencies
 
 ```
-sudo pacman -S squashfs-tools e2fsprogs curl qemu-img
+sudo pacman -S squashfs-tools e2fsprogs curl qemu-img just
 ```
 
 ## Setup
 
 ```
-make deps
+cd fctl && just deps
 ```

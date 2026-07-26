@@ -4,7 +4,7 @@ CLI for managing jailed Firecracker microVMs.
 
 ## Prerequisites
 
-- `firecracker` and `jailer` binaries (see parent Makefile: `make deps`)
+- `firecracker` and `jailer` binaries (see `just deps` in this directory)
 - `vmlinux.bin` kernel
 - `rootfs.ext4` base image
 - Run as root
