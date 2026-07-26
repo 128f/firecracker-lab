@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 
 	"github.com/128f/fctl/state"
 	"github.com/128f/fctl/vm"
@@ -51,11 +52,19 @@ var consoleCmd = &cobra.Command{
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt)
 
+		var once sync.Once
+		closeDone := func() { once.Do(func() { close(done) }) }
+
+		// firecrackerSocket := r.SocketPath(id)
+
 		go func() {
-			defer close(done)
 			io.Copy(conn, &ctrlBracketReader{r: os.Stdin, done: done})
+			closeDone()
 		}()
-		go io.Copy(os.Stdout, conn)
+		go func() {
+			io.Copy(os.Stdout, conn)
+			closeDone()
+		}()
 
 		select {
 		case <-done:

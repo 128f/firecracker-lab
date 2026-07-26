@@ -41,7 +41,7 @@ func (r *Runner) vmDir(id string) string {
 	return filepath.Join(r.LabDir, "vms", filepath.Base(r.FirecrackerBin), id)
 }
 
-func (r *Runner) socketPath(id string) string {
+func (r *Runner) SocketPath(id string) string {
 	return filepath.Join(r.vmDir(id), "root", "run", "firecracker.socket")
 }
 
@@ -71,7 +71,7 @@ func (r *Runner) Run(vm *state.VM, detach bool) error {
 		return err
 	}
 
-	sock := r.socketPath(vm.ID)
+	sock := r.SocketPath(vm.ID)
 	r.log().Info("waiting for API socket", "vm", vm.ID, "path", sock)
 	if err := waitForSocket(sock, 5*time.Second); err != nil {
 		return fmt.Errorf("socket never appeared at %s: %w", sock, err)
@@ -198,7 +198,7 @@ func (r *Runner) launchJailer(vm *state.VM, detach bool) (*exec.Cmd, error) {
 
 func (r *Runner) Destroy(vm *state.VM) error {
 	r.log().Info("sending halt signal via API", "vm", vm.ID)
-	_ = apiPut(r.socketPath(vm.ID), "/actions", map[string]string{"action_type": "SendCtrlAltDel"})
+	_ = apiPut(r.SocketPath(vm.ID), "/actions", map[string]string{"action_type": "SendCtrlAltDel"})
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -252,7 +252,7 @@ func (r *Runner) consoleListener(id string, stdin io.WriteCloser, stdout io.Read
 func (r *Runner) bootVM(vm *state.VM, sock string) error {
 	if err := apiPut(sock, "/boot-source", map[string]string{
 		"kernel_image_path": "/vmlinux.bin",
-		"boot_args": fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off ip=%s::172.16.0.1:255.255.255.0::eth0:off", vm.IP),
+		"boot_args":         fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/usr/local/bin/web ip=%s::172.16.0.1:255.255.255.0::eth0:off", vm.IP),
 	}); err != nil {
 		return err
 	}
