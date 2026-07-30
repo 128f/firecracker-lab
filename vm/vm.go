@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -28,6 +29,33 @@ type Runner struct {
 	UID            int
 	GID            int
 	Logger         *slog.Logger
+	Net            NetworkProvisioner // nil => real iproute2 implementation
+	Jailer         JailerLauncher     // nil => real jailer exec implementation
+}
+
+// NetworkProvisioner sets up and tears down the tap device for a VM.
+type NetworkProvisioner interface {
+	SetupTap(vm *state.VM) error
+	TeardownTap(vm *state.VM) error
+}
+
+// JailerLauncher starts the jailer/firecracker process for a VM.
+type JailerLauncher interface {
+	Launch(vm *state.VM, detach bool) (*exec.Cmd, error)
+}
+
+func (r *Runner) net() NetworkProvisioner {
+	if r.Net != nil {
+		return r.Net
+	}
+	return &iproute2NetworkProvisioner{r: r}
+}
+
+func (r *Runner) jailer() JailerLauncher {
+	if r.Jailer != nil {
+		return r.Jailer
+	}
+	return &execJailerLauncher{r: r}
 }
 
 func (r *Runner) log() *slog.Logger {
@@ -57,11 +85,11 @@ func (r *Runner) Run(vm *state.VM, detach bool) error {
 	if err := r.setupChroot(vm); err != nil {
 		return err
 	}
-	if err := r.setupTap(vm); err != nil {
+	if err := r.net().SetupTap(vm); err != nil {
 		return err
 	}
 
-	cmd, err := r.launchJailer(vm, detach)
+	cmd, err := r.jailer().Launch(vm, detach)
 	if err != nil {
 		return err
 	}
@@ -130,7 +158,15 @@ func (r *Runner) setupChroot(vm *state.VM) error {
 	r.log().Info("copying rootfs", "vm", vm.ID)
 	baseRootfs := filepath.Join(r.LabDir, "rootfs.ext4")
 	vmRootfs := filepath.Join(root, "rootfs.ext4")
-	out, err := exec.Command("cp", "--reflink=auto", baseRootfs, vmRootfs).CombinedOutput()
+	// --reflink=auto is GNU-cp-only; BSD/macOS cp rejects the flag outright
+	// (rather than falling back), so skip it off Linux. On Linux this is a
+	// no-op behavior change since --reflink=auto already falls back to a
+	// plain copy when the filesystem doesn't support reflinks.
+	cpArgs := []string{"--reflink=auto", baseRootfs, vmRootfs}
+	if runtime.GOOS != "linux" {
+		cpArgs = []string{baseRootfs, vmRootfs}
+	}
+	out, err := exec.Command("cp", cpArgs...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("cp rootfs: %s: %w", out, err)
 	}
@@ -141,7 +177,11 @@ func (r *Runner) setupChroot(vm *state.VM) error {
 	return nil
 }
 
-func (r *Runner) setupTap(vm *state.VM) error {
+// iproute2NetworkProvisioner shells out to `ip` to manage the tap device.
+type iproute2NetworkProvisioner struct{ r *Runner }
+
+func (n *iproute2NetworkProvisioner) SetupTap(vm *state.VM) error {
+	r := n.r
 	r.log().Info("configuring tap device", "vm", vm.ID, "tap", vm.Tap)
 	if err := run("ip", "tuntap", "add", vm.Tap, "mode", "tap"); err != nil {
 		return fmt.Errorf("create tap: %w", err)
@@ -155,7 +195,19 @@ func (r *Runner) setupTap(vm *state.VM) error {
 	return nil
 }
 
-func (r *Runner) launchJailer(vm *state.VM, detach bool) (*exec.Cmd, error) {
+func (n *iproute2NetworkProvisioner) TeardownTap(vm *state.VM) error {
+	r := n.r
+	r.log().Info("removing tap device", "vm", vm.ID, "tap", vm.Tap)
+	_ = run("ip", "link", "set", vm.Tap, "down")
+	_ = run("ip", "tuntap", "del", vm.Tap, "mode", "tap")
+	return nil
+}
+
+// execJailerLauncher execs the real jailer/firecracker binaries.
+type execJailerLauncher struct{ r *Runner }
+
+func (j *execJailerLauncher) Launch(vm *state.VM, detach bool) (*exec.Cmd, error) {
+	r := j.r
 	args := []string{
 		"--id", vm.ID,
 		"--exec-file", r.FirecrackerBin,
@@ -211,9 +263,7 @@ func (r *Runner) Destroy(vm *state.VM) error {
 		}
 	}
 
-	r.log().Info("removing tap device", "vm", vm.ID, "tap", vm.Tap)
-	_ = run("ip", "link", "set", vm.Tap, "down")
-	_ = run("ip", "tuntap", "del", vm.Tap, "mode", "tap")
+	_ = r.net().TeardownTap(vm)
 
 	r.log().Info("removing vm dir", "vm", vm.ID)
 	return os.RemoveAll(r.vmDir(vm.ID))
