@@ -12,17 +12,22 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List VMs",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		s, err := state.Load(state.StatePath(labDir))
+		s, err := state.Load(state.DBPath(labDir))
 		if err != nil {
 			return err
 		}
-		if len(s.VMs) == 0 {
+		defer s.Close()
+		vms, err := s.List()
+		if err != nil {
+			return err
+		}
+		if len(vms) == 0 {
 			fmt.Println("no VMs")
 			return nil
 		}
 		r := &vm.Runner{LabDir: labDir, FirecrackerBin: fcBin}
 		fmt.Printf("%-8s %-8s %-16s %-6s %s\n", "ID", "TAP", "IP", "CID", "STATUS")
-		for _, v := range s.VMs {
+		for _, v := range vms {
 			status := "stopped"
 			if r.IsAlive(v.ID) {
 				status = "running"

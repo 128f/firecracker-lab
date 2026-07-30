@@ -22,10 +22,11 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Create and run one or more VMs",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		s, err := state.Load(state.StatePath(labDir))
+		s, err := state.Load(state.DBPath(labDir))
 		if err != nil {
 			return err
 		}
+		defer s.Close()
 
 		r := &vm.Runner{
 			LabDir:         labDir,
@@ -36,25 +37,15 @@ var runCmd = &cobra.Command{
 		}
 
 		for range flagCount {
-			id, tapIdx, ip, cid := s.NextAlloc()
-			_ = tapIdx
-
-			v := &state.VM{
-				ID:     id,
-				Tap:    fmt.Sprintf("tap%d", cid-3),
-				IP:     ip,
-				CID:    cid,
-				VCPUs:  flagVCPUs,
-				MemMiB: flagMemMiB,
+			v, err := s.AllocateAndInsert(flagVCPUs, flagMemMiB, "")
+			if err != nil {
+				return err
 			}
 
 			fmt.Printf("running %s (tap=%s ip=%s cid=%d)...\n", v.ID, v.Tap, v.IP, v.CID)
 
 			if err := r.Run(v, flagDetach); err != nil {
 				return fmt.Errorf("run %s: %w", v.ID, err)
-			}
-			if err := s.Add(v); err != nil {
-				return err
 			}
 			fmt.Printf("started %s\n", v.ID)
 		}

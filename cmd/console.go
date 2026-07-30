@@ -20,11 +20,16 @@ var consoleCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
-		s, err := state.Load(state.StatePath(labDir))
+		s, err := state.Load(state.DBPath(labDir))
 		if err != nil {
 			return err
 		}
-		if _, ok := s.VMs[id]; !ok {
+		defer s.Close()
+		v, err := s.Get(id)
+		if err != nil {
+			return err
+		}
+		if v == nil {
 			return fmt.Errorf("unknown VM: %s", id)
 		}
 
