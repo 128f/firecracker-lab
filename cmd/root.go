@@ -4,27 +4,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	labDir string
-	fcBin  string
-)
+// Config holds the dependencies shared by every subcommand.
+type Config struct {
+	LabDir string
+	FCBin  string
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "fctl",
 	Short: "Firecracker VM manager",
 }
 
-func init() {
-	rootCmd.PersistentFlags().StringVar(&fcBin, "firecracker", "firecracker", "path to firecracker binary")
+func Execute(dir string) error {
+	cfg := &Config{LabDir: dir}
+
+	rootCmd.PersistentFlags().StringVar(&cfg.FCBin, "firecracker", "firecracker", "path to firecracker binary")
 
 	rootCmd.AddCommand(setupCmd)
-	rootCmd.AddCommand(runCmd)
-	rootCmd.AddCommand(destroyCmd)
-	rootCmd.AddCommand(listCmd)
-	rootCmd.AddCommand(consoleCmd)
-}
+	rootCmd.AddCommand(newRunCmd(cfg))
+	rootCmd.AddCommand(newDestroyCmd(cfg))
+	rootCmd.AddCommand(newListCmd(cfg))
+	rootCmd.AddCommand(newConsoleCmd(cfg))
 
-func Execute(dir string) error {
-	labDir = dir
 	return rootCmd.Execute()
 }
