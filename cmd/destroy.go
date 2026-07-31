@@ -15,7 +15,7 @@ func newDestroyCmd(cfg *Config) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
-			s, err := state.Load(state.DBPath(cfg.LabDir))
+			s, err := state.Load(state.DBPath(cfg.DataDir))
 			if err != nil {
 				return err
 			}
@@ -27,7 +27,7 @@ func newDestroyCmd(cfg *Config) *cobra.Command {
 			if v == nil {
 				return fmt.Errorf("unknown VM: %s", id)
 			}
-			r := &vm.Runner{LabDir: cfg.LabDir, FirecrackerBin: cfg.FCBin}
+			r := &vm.Runner{DataDir: cfg.DataDir, FirecrackerBin: cfg.FCBin}
 			fmt.Printf("destroying %s...\n", id)
 			if err := r.Destroy(v); err != nil {
 				return err

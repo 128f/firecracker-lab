@@ -23,7 +23,8 @@ import (
 const bridgeName = "br0"
 
 type Runner struct {
-	LabDir         string
+	DataDir        string
+	SourceDir      string
 	JailerBin      string
 	FirecrackerBin string
 	UID            int
@@ -66,7 +67,7 @@ func (r *Runner) log() *slog.Logger {
 }
 
 func (r *Runner) vmDir(id string) string {
-	return filepath.Join(r.LabDir, "vms", filepath.Base(r.FirecrackerBin), id)
+	return filepath.Join(r.DataDir, "vms", filepath.Base(r.FirecrackerBin), id)
 }
 
 func (r *Runner) SocketPath(id string) string {
@@ -81,8 +82,8 @@ func (r *Runner) pidPath(id string) string {
 	return filepath.Join(r.vmDir(id), "fctl.pid")
 }
 
-func (r *Runner) Run(vm *state.VM, detach bool) error {
-	if err := r.setupChroot(vm); err != nil {
+func (r *Runner) Run(vm *state.VM, imagePath string, detach bool) error {
+	if err := r.setupChroot(vm, imagePath); err != nil {
 		return err
 	}
 	if err := r.net().SetupTap(vm); err != nil {
@@ -132,7 +133,7 @@ func (r *Runner) Run(vm *state.VM, detach bool) error {
 	}
 }
 
-func (r *Runner) setupChroot(vm *state.VM) error {
+func (r *Runner) setupChroot(vm *state.VM, imagePath string) error {
 	root := filepath.Join(r.vmDir(vm.ID), "root")
 	runDir := filepath.Join(root, "run")
 
@@ -146,7 +147,7 @@ func (r *Runner) setupChroot(vm *state.VM) error {
 	}
 
 	r.log().Info("hard-linking kernel", "vm", vm.ID)
-	kernel := filepath.Join(r.LabDir, "vmlinux.bin")
+	kernel := filepath.Join(r.SourceDir, "vmlinux.bin")
 	kernelDst := filepath.Join(root, "vmlinux.bin")
 	if err := os.Link(kernel, kernelDst); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("link kernel: %w", err)
@@ -156,19 +157,18 @@ func (r *Runner) setupChroot(vm *state.VM) error {
 	}
 
 	r.log().Info("copying rootfs", "vm", vm.ID)
-	baseRootfs := filepath.Join(r.LabDir, "rootfs.ext4")
 	vmRootfs := filepath.Join(root, "rootfs.ext4")
-	// --reflink=auto is GNU-cp-only; BSD/macOS cp rejects the flag outright
-	// (rather than falling back), so skip it off Linux. On Linux this is a
-	// no-op behavior change since --reflink=auto already falls back to a
-	// plain copy when the filesystem doesn't support reflinks.
-	cpArgs := []string{"--reflink=auto", baseRootfs, vmRootfs}
+	// --reflink is GNU-cp-only; BSD/macOS cp rejects the flag outright, so
+	// skip it off Linux — a test/dev-only concession, not a production
+	// fallback path. On Linux, --reflink=always never silently falls back
+	// to a full copy: it fails loudly if the data dir isn't reflink-capable.
+	cpArgs := []string{"--reflink=always", imagePath, vmRootfs}
 	if runtime.GOOS != "linux" {
-		cpArgs = []string{baseRootfs, vmRootfs}
+		cpArgs = []string{imagePath, vmRootfs}
 	}
 	out, err := exec.Command("cp", cpArgs...).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("cp rootfs: %s: %w", out, err)
+		return fmt.Errorf("reflink copy failed (data dir must be on a reflink-capable filesystem — btrfs or xfs): %s: %w", out, err)
 	}
 	if err := os.Chown(vmRootfs, r.UID, r.GID); err != nil {
 		return fmt.Errorf("chown rootfs: %w", err)
@@ -213,7 +213,7 @@ func (j *execJailerLauncher) Launch(vm *state.VM, detach bool) (*exec.Cmd, error
 		"--exec-file", r.FirecrackerBin,
 		"--uid", fmt.Sprintf("%d", r.UID),
 		"--gid", fmt.Sprintf("%d", r.GID),
-		"--chroot-base-dir", filepath.Join(r.LabDir, "vms"),
+		"--chroot-base-dir", filepath.Join(r.DataDir, "vms"),
 		"--cgroup-version", "2",
 		"--",
 		"--api-sock", "/run/firecracker.socket",

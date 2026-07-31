@@ -44,7 +44,8 @@ func fixtureVM() *state.VM {
 func newTestRunner(t *testing.T, labDir string) *Runner {
 	t.Helper()
 	return &Runner{
-		LabDir:         labDir,
+		DataDir:        labDir,
+		SourceDir:      labDir,
 		JailerBin:      "unused-fake-jailer",
 		FirecrackerBin: "firecracker",
 		UID:            os.Getuid(),
@@ -83,7 +84,7 @@ func TestRunHappyPath(t *testing.T) {
 	noop := &vmtest.NoopNetworkProvisioner{}
 	r.Net = noop
 
-	if err := r.Run(vm, true); err != nil {
+	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -143,7 +144,7 @@ func TestRunErrorPathStopsAtFailure(t *testing.T) {
 	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
 	r.Net = &vmtest.NoopNetworkProvisioner{}
 
-	err := r.Run(vm, true)
+	err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), true)
 	if err == nil {
 		t.Fatal("Run: expected error, got nil")
 	}
@@ -214,7 +215,7 @@ func TestSetupChroot(t *testing.T) {
 	r := newTestRunner(t, labDir)
 	vm := fixtureVM()
 
-	if err := r.setupChroot(vm); err != nil {
+	if err := r.setupChroot(vm, filepath.Join(labDir, "rootfs.ext4")); err != nil {
 		t.Fatalf("setupChroot: %v", err)
 	}
 

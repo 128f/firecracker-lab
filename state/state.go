@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -16,6 +17,13 @@ type VM struct {
 	CID    int    `json:"cid"`
 	VCPUs  int    `json:"vcpus"`
 	MemMiB int    `json:"mem_mib"`
+}
+
+type Image struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 type State struct {
@@ -188,11 +196,65 @@ func (s *State) Remove(id string) error {
 	return err
 }
 
+// InsertImage records a newly-imported base image.
+func (s *State) InsertImage(name, path string, sizeBytes int64) (*Image, error) {
+	img := &Image{ID: uuid.NewString(), Name: name, Path: path, SizeBytes: sizeBytes}
+	_, err := s.db.Exec(
+		`INSERT INTO images (id, name, path, size_bytes) VALUES (?, ?, ?, ?)`,
+		img.ID, img.Name, img.Path, img.SizeBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+// GetImage returns the image with the given id.
+func (s *State) GetImage(id string) (*Image, error) {
+	return s.scanImage(s.db.QueryRow(`SELECT id, name, path, size_bytes FROM images WHERE id = ?`, id))
+}
+
+// GetImageByName returns the image with the given name.
+func (s *State) GetImageByName(name string) (*Image, error) {
+	return s.scanImage(s.db.QueryRow(`SELECT id, name, path, size_bytes FROM images WHERE name = ?`, name))
+}
+
+func (s *State) scanImage(row *sql.Row) (*Image, error) {
+	img := &Image{}
+	err := row.Scan(&img.ID, &img.Name, &img.Path, &img.SizeBytes)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+// ListImages returns all registered images.
+func (s *State) ListImages() ([]*Image, error) {
+	rows, err := s.db.Query(`SELECT id, name, path, size_bytes FROM images`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var images []*Image
+	for rows.Next() {
+		img := &Image{}
+		if err := rows.Scan(&img.ID, &img.Name, &img.Path, &img.SizeBytes); err != nil {
+			return nil, err
+		}
+		images = append(images, img)
+	}
+	return images, rows.Err()
+}
+
 func tapName(i int) string { return fmt.Sprintf("tap%d", i) }
 func vmID(i int) string    { return fmt.Sprintf("vm%d", i) }
 func vmIP(i int) string    { return fmt.Sprintf("172.16.%d.%d", (i+2)/254, (i+2)%254+1) }
 
-// DBPath returns the default fctl.db path relative to labDir.
-func DBPath(labDir string) string {
-	return filepath.Join(labDir, "fctl.db")
+// DBPath returns the default fctl.db path relative to dataDir.
+func DBPath(dataDir string) string {
+	return filepath.Join(dataDir, "fctl.db")
 }

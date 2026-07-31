@@ -17,20 +17,27 @@ func newRunCmd(cfg *Config) *cobra.Command {
 		flagGID       int
 		flagDetach    bool
 		flagJailerBin string
+		flagImage     string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Create and run one or more VMs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := state.Load(state.DBPath(cfg.LabDir))
+			s, err := state.Load(state.DBPath(cfg.DataDir))
 			if err != nil {
 				return err
 			}
 			defer s.Close()
 
+			img, err := resolveImage(s, flagImage)
+			if err != nil {
+				return err
+			}
+
 			r := &vm.Runner{
-				LabDir:         cfg.LabDir,
+				DataDir:        cfg.DataDir,
+				SourceDir:      cfg.SourceDir,
 				JailerBin:      flagJailerBin,
 				FirecrackerBin: cfg.FCBin,
 				UID:            flagUID,
@@ -38,14 +45,14 @@ func newRunCmd(cfg *Config) *cobra.Command {
 			}
 
 			for range flagCount {
-				v, err := s.AllocateAndInsert(flagVCPUs, flagMemMiB, "")
+				v, err := s.AllocateAndInsert(flagVCPUs, flagMemMiB, img.ID)
 				if err != nil {
 					return err
 				}
 
-				fmt.Printf("running %s (tap=%s ip=%s cid=%d)...\n", v.ID, v.Tap, v.IP, v.CID)
+				fmt.Printf("running %s (tap=%s ip=%s cid=%d image=%s)...\n", v.ID, v.Tap, v.IP, v.CID, img.Name)
 
-				if err := r.Run(v, flagDetach); err != nil {
+				if err := r.Run(v, img.Path, flagDetach); err != nil {
 					return fmt.Errorf("run %s: %w", v.ID, err)
 				}
 				fmt.Printf("started %s\n", v.ID)
@@ -61,6 +68,35 @@ func newRunCmd(cfg *Config) *cobra.Command {
 	cmd.Flags().IntVar(&flagGID, "gid", 123, "gid for jailer vm user")
 	cmd.Flags().BoolVarP(&flagDetach, "detach", "d", false, "run VM in background")
 	cmd.Flags().StringVar(&flagJailerBin, "jailer", "jailer", "path to jailer binary")
+	cmd.Flags().StringVar(&flagImage, "image", "", "name of the registered image to boot (default: the only registered image, if there's exactly one)")
 
 	return cmd
+}
+
+// resolveImage resolves the --image flag to a registered image, defaulting
+// to the sole registered image when name is empty and exactly one exists.
+func resolveImage(s *state.State, name string) (*state.Image, error) {
+	if name != "" {
+		img, err := s.GetImageByName(name)
+		if err != nil {
+			return nil, err
+		}
+		if img == nil {
+			return nil, fmt.Errorf("unknown image: %s (see `fctl image list`)", name)
+		}
+		return img, nil
+	}
+
+	images, err := s.ListImages()
+	if err != nil {
+		return nil, err
+	}
+	switch len(images) {
+	case 0:
+		return nil, fmt.Errorf("no images registered; import one with `fctl image import <path> --name <name>`")
+	case 1:
+		return images[0], nil
+	default:
+		return nil, fmt.Errorf("--image is required: %d images registered (see `fctl image list`)", len(images))
+	}
 }

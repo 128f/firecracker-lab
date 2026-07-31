@@ -13,7 +13,7 @@ func newListCmd(cfg *Config) *cobra.Command {
 		Use:   "list",
 		Short: "List VMs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := state.Load(state.DBPath(cfg.LabDir))
+			s, err := state.Load(state.DBPath(cfg.DataDir))
 			if err != nil {
 				return err
 			}
@@ -26,7 +26,7 @@ func newListCmd(cfg *Config) *cobra.Command {
 				fmt.Println("no VMs")
 				return nil
 			}
-			r := &vm.Runner{LabDir: cfg.LabDir, FirecrackerBin: cfg.FCBin}
+			r := &vm.Runner{DataDir: cfg.DataDir, FirecrackerBin: cfg.FCBin}
 			fmt.Printf("%-8s %-8s %-16s %-6s %s\n", "ID", "TAP", "IP", "CID", "STATUS")
 			for _, v := range vms {
 				status := "stopped"
