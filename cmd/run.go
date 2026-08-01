@@ -10,14 +10,14 @@ import (
 
 func newRunCmd(cfg *Config) *cobra.Command {
 	var (
-		flagVCPUs     int
-		flagMemMiB    int
-		flagCount     int
-		flagUID       int
-		flagGID       int
-		flagDetach    bool
-		flagJailerBin string
-		flagImage     string
+		flagVCPUs         int
+		flagMemMiB        int
+		flagCount         int
+		flagUID           int
+		flagGID           int
+		flagAttachConsole bool
+		flagJailerBin     string
+		flagImage         string
 	)
 
 	cmd := &cobra.Command{
@@ -52,7 +52,7 @@ func newRunCmd(cfg *Config) *cobra.Command {
 
 				fmt.Printf("running %s (tap=%s ip=%s cid=%d image=%s)...\n", v.ID, v.Tap, v.IP, v.CID, img.Name)
 
-				if err := r.Run(v, img.Path, flagDetach); err != nil {
+				if err := r.Run(v, img.Path, flagAttachConsole); err != nil {
 					return fmt.Errorf("run %s: %w", v.ID, err)
 				}
 				fmt.Printf("started %s\n", v.ID)
@@ -66,7 +66,7 @@ func newRunCmd(cfg *Config) *cobra.Command {
 	cmd.Flags().IntVar(&flagCount, "count", 1, "number of VMs to create")
 	cmd.Flags().IntVar(&flagUID, "uid", 123, "uid for jailer vm user")
 	cmd.Flags().IntVar(&flagGID, "gid", 123, "gid for jailer vm user")
-	cmd.Flags().BoolVarP(&flagDetach, "detach", "d", false, "run VM in background")
+	cmd.Flags().BoolVarP(&flagAttachConsole, "attach-console", "a", false, "run VM in foreground, attached to its console (default: detached, runs in background)")
 	cmd.Flags().StringVar(&flagJailerBin, "jailer", defaultJailerBin(), "path to jailer binary (env: FCTL_JAILER_BIN)")
 	cmd.Flags().StringVar(&flagImage, "image", "", "name of the registered image to boot (default: the only registered image, if there's exactly one)")
 

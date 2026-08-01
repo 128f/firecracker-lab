@@ -84,7 +84,7 @@ func TestRunHappyPath(t *testing.T) {
 	noop := &vmtest.NoopNetworkProvisioner{}
 	r.Net = noop
 
-	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), true); err != nil {
+	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestRunErrorPathStopsAtFailure(t *testing.T) {
 	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
 	r.Net = &vmtest.NoopNetworkProvisioner{}
 
-	err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), true)
+	err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false)
 	if err == nil {
 		t.Fatal("Run: expected error, got nil")
 	}

@@ -42,7 +42,7 @@ type NetworkProvisioner interface {
 
 // JailerLauncher starts the jailer/firecracker process for a VM.
 type JailerLauncher interface {
-	Launch(vm *state.VM, detach bool) (*exec.Cmd, error)
+	Launch(vm *state.VM, attach bool) (*exec.Cmd, error)
 }
 
 func (r *Runner) net() NetworkProvisioner {
@@ -82,7 +82,7 @@ func (r *Runner) pidPath(id string) string {
 	return filepath.Join(r.vmDir(id), "fctl.pid")
 }
 
-func (r *Runner) Run(vm *state.VM, imagePath string, detach bool) error {
+func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 	if err := r.setupChroot(vm, imagePath); err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, detach bool) error {
 		return err
 	}
 
-	cmd, err := r.jailer().Launch(vm, detach)
+	cmd, err := r.jailer().Launch(vm, attach)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, detach bool) error {
 		return err
 	}
 
-	if detach {
+	if !attach {
 		r.log().Info("VM running in background", "vm", vm.ID)
 		return nil
 	}
@@ -206,7 +206,7 @@ func (n *iproute2NetworkProvisioner) TeardownTap(vm *state.VM) error {
 // execJailerLauncher execs the real jailer/firecracker binaries.
 type execJailerLauncher struct{ r *Runner }
 
-func (j *execJailerLauncher) Launch(vm *state.VM, detach bool) (*exec.Cmd, error) {
+func (j *execJailerLauncher) Launch(vm *state.VM, attach bool) (*exec.Cmd, error) {
 	r := j.r
 	args := []string{
 		"--id", vm.ID,
@@ -224,7 +224,7 @@ func (j *execJailerLauncher) Launch(vm *state.VM, detach bool) (*exec.Cmd, error
 	cmd := exec.Command(r.JailerBin, args...)
 	cmd.Stderr = os.Stderr
 
-	if detach {
+	if !attach {
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
 			return nil, fmt.Errorf("stdin pipe: %w", err)
