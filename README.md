@@ -10,6 +10,35 @@ CLI for managing jailed Firecracker microVMs.
   [Storage](#storage) below
 - Run as root
 
+## Environment variables
+
+Every path-ish flag can be set via an env var instead, so a single
+`export` at the top of your shell keeps every subcommand pointed at the
+same place — no need to retype `--data-dir`/`--firecracker`/etc. on every
+invocation (a flag always overrides its env var if both are set):
+
+| Flag             | Env var                  | Default        |
+|------------------|---------------------------|----------------|
+| `--data-dir`     | `FCTL_DATA_DIR`           | `/var/lib/fctl`|
+| `--source-dir`   | `FCTL_SOURCE_DIR`         | `.`            |
+| `--firecracker`  | `FCTL_FIRECRACKER_BIN`    | `firecracker`  |
+| `--jailer`       | `FCTL_JAILER_BIN`         | `jailer`       |
+
+Example:
+```bash
+export FCTL_DATA_DIR=/mnt/xfs
+export FCTL_SOURCE_DIR=/mnt/xfs
+export FCTL_FIRECRACKER_BIN=./release-v1.14.3-x86_64/firecracker-v1.14.3-x86_64
+export FCTL_JAILER_BIN=./release-v1.14.3-x86_64/jailer-v1.14.3-x86_64
+
+sudo -E ./fctl setup
+sudo -E ./fctl image import ./rootfs.ext4 --name base
+sudo -E ./fctl run --image base --count 3
+sudo -E ./fctl console vm0
+```
+Note `sudo -E` — `sudo` strips the environment by default, so without
+`-E` these exports won't reach the command.
+
 ## One-time host setup
 
 Creates the bridge, cgroup parent, jailer dirs, and data dir. Run once per boot:

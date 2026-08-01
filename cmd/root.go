@@ -21,19 +21,37 @@ var rootCmd = &cobra.Command{
 	Short: "Firecracker VM manager",
 }
 
-func defaultDataDir() string {
-	if v := os.Getenv("FCTL_DATA_DIR"); v != "" {
+// envOr returns the value of the given environment variable, or fallback
+// if it's unset or empty.
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
 		return v
 	}
-	return "/var/lib/fctl"
+	return fallback
+}
+
+func defaultDataDir() string {
+	return envOr("FCTL_DATA_DIR", "/var/lib/fctl")
+}
+
+func defaultSourceDir() string {
+	return envOr("FCTL_SOURCE_DIR", ".")
+}
+
+func defaultFirecrackerBin() string {
+	return envOr("FCTL_FIRECRACKER_BIN", "firecracker")
+}
+
+func defaultJailerBin() string {
+	return envOr("FCTL_JAILER_BIN", "jailer")
 }
 
 func Execute() error {
 	cfg := &Config{}
 
-	rootCmd.PersistentFlags().StringVar(&cfg.DataDir, "data-dir", defaultDataDir(), "directory for VM state, images, and the state DB")
-	rootCmd.PersistentFlags().StringVar(&cfg.SourceDir, "source-dir", ".", "directory containing build-time inputs (vmlinux.bin, base rootfs.ext4)")
-	rootCmd.PersistentFlags().StringVar(&cfg.FCBin, "firecracker", "firecracker", "path to firecracker binary")
+	rootCmd.PersistentFlags().StringVar(&cfg.DataDir, "data-dir", defaultDataDir(), "directory for VM state, images, and the state DB (env: FCTL_DATA_DIR)")
+	rootCmd.PersistentFlags().StringVar(&cfg.SourceDir, "source-dir", defaultSourceDir(), "directory containing build-time inputs (vmlinux.bin) (env: FCTL_SOURCE_DIR)")
+	rootCmd.PersistentFlags().StringVar(&cfg.FCBin, "firecracker", defaultFirecrackerBin(), "path to firecracker binary (env: FCTL_FIRECRACKER_BIN)")
 
 	rootCmd.AddCommand(newSetupCmd(cfg))
 	rootCmd.AddCommand(newRunCmd(cfg))

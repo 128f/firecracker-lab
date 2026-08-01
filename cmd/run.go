@@ -67,7 +67,7 @@ func newRunCmd(cfg *Config) *cobra.Command {
 	cmd.Flags().IntVar(&flagUID, "uid", 123, "uid for jailer vm user")
 	cmd.Flags().IntVar(&flagGID, "gid", 123, "gid for jailer vm user")
 	cmd.Flags().BoolVarP(&flagDetach, "detach", "d", false, "run VM in background")
-	cmd.Flags().StringVar(&flagJailerBin, "jailer", "jailer", "path to jailer binary")
+	cmd.Flags().StringVar(&flagJailerBin, "jailer", defaultJailerBin(), "path to jailer binary (env: FCTL_JAILER_BIN)")
 	cmd.Flags().StringVar(&flagImage, "image", "", "name of the registered image to boot (default: the only registered image, if there's exactly one)")
 
 	return cmd
