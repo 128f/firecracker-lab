@@ -10,7 +10,7 @@ rootfs_size := "512M"
 
 deps: firecracker-release vmlinux-bin rootfs-ext4
 
-fctl:
+build:
     go build -o fctl .
 
 [private]
