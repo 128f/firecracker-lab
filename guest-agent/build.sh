@@ -1,5 +1,5 @@
-docker build . -t firecracker-rootfs:24.04
-CID=$(docker create firecracker-rootfs:24.04)
+docker build . -t guest-agent:24.04
+CID=$(docker create guest-agent:24.04)
 docker export "$CID" -o rootfs.tar
 docker rm "$CID"
 
