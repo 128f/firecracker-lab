@@ -302,7 +302,7 @@ func (r *Runner) consoleListener(id string, stdin io.WriteCloser, stdout io.Read
 func (r *Runner) bootVM(vm *state.VM, sock string) error {
 	if err := apiPut(sock, "/boot-source", map[string]string{
 		"kernel_image_path": "/vmlinux.bin",
-		"boot_args":         fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/usr/local/bin/web ip=%s::172.16.0.1:255.255.255.0::eth0:off", vm.IP),
+		"boot_args":         fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/bin/guest-agent ip=%s::172.16.0.1:255.255.255.0::eth0:off", vm.IP),
 	}); err != nil {
 		return err
 	}
