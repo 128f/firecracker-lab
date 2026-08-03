@@ -1,8 +1,11 @@
 use rustix::buffer::spare_capacity;
 use rustix::event::epoll;
 use rustix::fs::{Mode, mkdir};
+use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
+use rustix::io::Errno;
 use rustix::io::read;
 use rustix::mount::{MountFlags, mount};
+use std::io::{Write, stdin};
 use std::os::fd::{AsFd, FromRawFd, OwnedFd};
 use syscalls::{Sysno, syscall};
 
@@ -59,47 +62,137 @@ fn main() {
     };
     let sfd = unsafe { OwnedFd::from_raw_fd(raw as i32) };
 
+    // TODO : s/unwrap/doinitrite/g
+    let (mut pty, mut pts) = pty_process::blocking::open().unwrap();
+    let child = pty_process::blocking::Command::new("/bin/sh")
+        .spawn(pts)
+        .unwrap();
+
     let epfd = epoll::create(epoll::CreateFlags::CLOEXEC).unwrap();
+    #[repr(u64)]
+    enum Source {
+        Signal = 1,
+        Stdin = 2,
+        Pty = 3,
+    }
+
+    impl Source {
+        fn from_u64(v: u64) -> Option<Self> {
+            match v {
+                1 => Some(Source::Signal),
+                2 => Some(Source::Stdin),
+                3 => Some(Source::Pty),
+                _ => None,
+            }
+        }
+    }
+
     epoll::add(
         &epfd,
         sfd.as_fd(),
-        epoll::EventData::new_u64(1),
+        epoll::EventData::new_u64(Source::Signal as u64),
+        epoll::EventFlags::IN,
+    )
+    .unwrap();
+    epoll::add(
+        &epfd,
+        &stdin(),
+        epoll::EventData::new_u64(Source::Stdin as u64),
+        epoll::EventFlags::IN,
+    )
+    .unwrap();
+    epoll::add(
+        &epfd,
+        &pty,
+        epoll::EventData::new_u64(Source::Pty as u64),
         epoll::EventFlags::IN,
     )
     .unwrap();
 
     let mut events: Vec<epoll::Event> = Vec::with_capacity(8);
-    let mut buf = [0u8; 128 * 4];
+
+    // TODO: println can panic prefer writeln and eat errors
+    println!("spawned child with id {} ", child.id());
+
+    // set non-blocking for the pty connections
+    fcntl_setfl(&pty, fcntl_getfl(&pty).unwrap() | OFlags::NONBLOCK).unwrap();
+    fcntl_setfl(&stdin(), fcntl_getfl(&stdin()).unwrap() | OFlags::NONBLOCK).unwrap();
 
     loop {
-        //clear
+        let mut stdout = std::io::stdout().lock();
+        // clear
         events.clear();
-        //collect
+        // collect anew
         epoll::wait(&epfd, spare_capacity(&mut events), None).unwrap();
-        //consume
+        // consume
         for ev in events.iter() {
-            if ev.data.u64() == 1 {
-                // drain signalfd
-                while let Ok(n) = read(sfd.as_fd(), &mut buf) {
-                    if n == 0 {
-                        break;
+            match Source::from_u64(ev.data.u64()) {
+                Some(Source::Signal) => {
+                    // drain signalfd
+                    let mut buf = [0u8; 128 * 4];
+                    while let Ok(n) = read(sfd.as_fd(), &mut buf) {
+                        if n == 0 {
+                            break;
+                        }
+                    }
+                    // reap
+                    loop {
+                        match unsafe {
+                            syscall!(
+                                Sysno::wait4,
+                                WAIT_ANY, // pid to listen for
+                                0usize,   // don't capture exit status
+                                WNOHANG,  // options
+                                0usize    // don't capture resource usage
+                            )
+                        } {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => continue,
+                        }
                     }
                 }
-                // reap
-                loop {
-                    match unsafe {
-                        syscall!(
-                            Sysno::wait4,
-                            WAIT_ANY, // pid to listen for
-                            0usize,   // don't capture exit status
-                            WNOHANG,  // options
-                            0usize    // don't capture resource usage
-                        )
-                    } {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) => continue,
+                Some(Source::Stdin) => {
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match rustix::io::read(stdin(), &mut buf) {
+                            Ok(0) => break, // outside user EOF'd
+                            Ok(n) => {
+                                // n bytes to drain form stdin to master
+                                let mut off = 0;
+                                while off < n {
+                                    match rustix::io::write(&pty, &buf[off..n]) {
+                                        Ok(w) => off += w,
+                                        Err(Errno::INTR) => continue,
+                                        // TODO: can we lock up here?
+                                        Err(Errno::AGAIN) => continue,
+                                        Err(_e) => break, // master can't be written
+                                    }
+                                }
+                            }
+                            Err(Errno::AGAIN) => break, // stdin drained
+                            Err(Errno::INTR) => continue,
+                            Err(_e) => break,
+                        }
                     }
                 }
+                Some(Source::Pty) => {
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match rustix::io::read(&pty, &mut buf) {
+                            Ok(0) => { /* TODO: hungup, respawn shell and re-enter */ }
+                            Ok(n) => {
+                                if stdout.write_all(&buf[..n]).is_err() {
+                                    break;
+                                };
+                                let _ = stdout.flush();
+                            }
+                            Err(Errno::AGAIN) => break, // spurious wakeup / drained; keep looping
+                            Err(Errno::INTR) => continue, // interrupted; retry next loop
+                            Err(_e) => break,           // TODO: handle the error
+                        };
+                    }
+                }
+                None => {} // unknown tag; ignore
             }
         }
     }
