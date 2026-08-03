@@ -1,6 +1,8 @@
-# fctl
+# Firecracker Lab
 
-CLI for managing jailed Firecracker microVMs.
+A CLI for managing jailed Firecracker microVMs, and a rust-based guest agent.
+
+The guest agent is planned to include an api, shell and heartbeat over vsock.
 
 ## Prerequisites
 
