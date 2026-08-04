@@ -78,6 +78,10 @@ func (r *Runner) ConsolePath(id string) string {
 	return filepath.Join(r.vmDir(id), "root", "run", "console.sock")
 }
 
+func (r *Runner) VsockPath(id string) string {
+	return filepath.Join(r.vmDir(id), "root", "run", "vsock.sock")
+}
+
 func (r *Runner) pidPath(id string) string {
 	return filepath.Join(r.vmDir(id), "fctl.pid")
 }
@@ -324,6 +328,13 @@ func (r *Runner) bootVM(vm *state.VM, sock string) error {
 		"iface_id":      "eth0",
 		"guest_mac":     fmt.Sprintf("AA:FC:00:00:%02x:%02x", vm.CID>>8, vm.CID&0xff),
 		"host_dev_name": vm.Tap,
+	}); err != nil {
+		return err
+	}
+	if err := apiPut(sock, "/vsock", map[string]any{
+		"vsock_id":  "vsock0",
+		"guest_cid": vm.CID,
+		"uds_path":  "/run/vsock.sock",
 	}); err != nil {
 		return err
 	}
