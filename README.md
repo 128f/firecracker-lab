@@ -131,6 +131,17 @@ Lists all VMs with tap, IP, CID, and live/stopped status (checked via `/proc/<pi
 sudo ./fctl list  # per-VM status shown inline
 ```
 
+### vsock
+
+```bash
+sudo ./fctl vsock <id> [--port 1234]
+```
+
+Connects to a guest vsock listener on the given port (default `1234`),
+performing the Firecracker UDS-backend `CONNECT` handshake and then
+piping the terminal to/from the connection. Puts the local terminal into
+raw mode for the duration of the session; press `ctrl+]` to detach.
+
 ## State
 
 All runtime state lives under `--data-dir` (default `/var/lib/fctl`, or
