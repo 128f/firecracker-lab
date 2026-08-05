@@ -58,6 +58,7 @@ func Execute() error {
 	rootCmd.AddCommand(newDestroyCmd(cfg))
 	rootCmd.AddCommand(newListCmd(cfg))
 	rootCmd.AddCommand(newConsoleCmd(cfg))
+	rootCmd.AddCommand(newVsockCmd(cfg))
 	rootCmd.AddCommand(newImageCmd(cfg))
 
 	return rootCmd.Execute()
