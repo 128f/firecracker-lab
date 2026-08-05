@@ -12,6 +12,11 @@ use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
 use syscalls::{Sysno, syscall};
 use vsock::{VsockAddr, VsockListener, VsockStream};
 
+mod status_api {
+    include!(concat!(env!("OUT_DIR"), "/agent.rs"));
+}
+use status_api::{HealthStatus, StatusResponse, request::RequestType};
+
 // kernel sigset_t size on x86-64 = _NSIG/8 = 8 bytes (NOT userspace sizeof)
 const SIGSET_SIZE: usize = 8;
 

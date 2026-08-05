@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package agent;
+
+message Request {
+    oneof request_type {
+        StatusRequest status = 1;
+    }
+}
+
+message StatusRequest {
+}
+
+enum HealthStatus {
+    HEALTHY = 0;
+    DEGRADED = 1;
+}
+
+message StatusResponse {
+    HealthStatus status = 1;
+}
