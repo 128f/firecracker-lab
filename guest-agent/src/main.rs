@@ -10,6 +10,8 @@ use rustix::mount::{MountFlags, mount};
 use rustix::termios::{OptionalActions, tcgetattr, tcsetattr};
 use std::io::{Read, Write, stdin};
 use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use syscalls::{Sysno, syscall};
 use vsock::{VsockAddr, VsockListener, VsockStream};
 
@@ -60,6 +62,40 @@ impl SignalSource {
             4 => Some(SignalSource::VsockListen),
             _ => None,
         }
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Status {
+    Init = 0,
+    Running = 1,
+    Stopped = 2,
+}
+
+struct Stats {
+    status: AtomicU8,
+    cpu_pct: AtomicU64, // or store as fixed-point / bits
+    mem_bytes: AtomicU64,
+    last_beat: AtomicU64,
+}
+
+impl Stats {
+    fn new() -> Self {
+        Stats {
+            status: AtomicU8::new(Status::Init as u8),
+            cpu_pct: AtomicU64::new(0),
+            mem_bytes: AtomicU64::new(0),
+            last_beat: AtomicU64::new(0),
+        }
+    }
+
+    fn beat(&self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.last_beat.store(now, Ordering::Relaxed);
     }
 }
 
@@ -157,16 +193,24 @@ impl VsockConnectionHandler {
     }
 }
 
-fn dispatch(req: status_api::Request) -> anyhow::Result<StatusResponse> {
+fn dispatch(req: status_api::Request, stats: &Stats) -> anyhow::Result<StatusResponse> {
     match req.request_type {
-        Some(RequestType::Status(_status_req)) => handle_status(),
+        Some(RequestType::Status(_status_req)) => handle_status(stats),
         None => anyhow::bail!("request with no request_type set"),
     }
 }
 
-fn handle_status() -> anyhow::Result<StatusResponse> {
+fn handle_status(stats: &Stats) -> anyhow::Result<StatusResponse> {
+    stats.beat();
+    let status = match stats.status.load(Ordering::Relaxed) {
+        s if s == Status::Running as u8 => HealthStatus::Healthy,
+        _ => HealthStatus::Degraded,
+    };
     Ok(StatusResponse {
-        status: HealthStatus::Healthy as i32,
+        status: status as i32,
+        cpu_pct: stats.cpu_pct.load(Ordering::Relaxed) as u32,
+        mem_bytes: stats.mem_bytes.load(Ordering::Relaxed),
+        last_beat: stats.last_beat.load(Ordering::Relaxed),
     })
 }
 
@@ -330,6 +374,7 @@ fn main() {
     let (pty_fd, _) = setup_pty().unwrap();
 
     let mut vsock_dispatcher = VsockDispatcher::new().unwrap();
+    let stats = Arc::new(Stats::new());
 
     let mut epoller = EpollGrid::new();
     epoller
@@ -353,6 +398,7 @@ fn main() {
     fcntl_setfl(stdin(), fcntl_getfl(stdin()).unwrap() | OFlags::NONBLOCK).unwrap();
 
     let pty_fd = pty_fd.try_clone().unwrap();
+    stats.status.store(Status::Running as u8, Ordering::Relaxed);
     loop {
         // consume
         for source in epoller.get_events() {
@@ -365,6 +411,7 @@ fn main() {
                 },
                 Some(SignalSource::VsockListen) => {
                     for (stream, addr) in vsock_dispatcher.accept_connections() {
+                        let stats = stats.clone();
                         std::thread::spawn(move || {
                             let mut handler = VsockConnectionHandler::new(stream, addr);
                             let Ok(prefix) = handler.read_length_prefix() else {
@@ -373,7 +420,7 @@ fn main() {
                             let Ok(payload) = handler.extract_payload(prefix) else {
                                 return;
                             };
-                            let Ok(response) = dispatch(payload) else {
+                            let Ok(response) = dispatch(payload, &stats) else {
                                 return;
                             };
                             let _ = handler.send_response(response);

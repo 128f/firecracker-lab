@@ -20,4 +20,7 @@ enum HealthStatus {
 
 message StatusResponse {
     HealthStatus status = 1;
+    uint32 cpu_pct = 2;
+    uint64 mem_bytes = 3;
+    uint64 last_beat = 4;
 }
