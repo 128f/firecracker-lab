@@ -48,7 +48,7 @@ func newListCmd(cfg *Config) *cobra.Command {
 func guestStatus(r *vm.Runner, id string) string {
 	health, err := r.Status(id)
 	if err != nil {
-		return "running (agent unreachable)"
+		return "unknown (agent unreachable)"
 	}
 	switch health {
 	case agentpb.HealthStatus_HEALTHY:
