@@ -15,7 +15,6 @@ pub fn dispatch(req: status_api::Request, stats: &Stats) -> anyhow::Result<Statu
 }
 
 fn handle_status(stats: &Stats) -> anyhow::Result<StatusResponse> {
-    stats.beat();
     let status = match stats.status.load(Ordering::Relaxed) {
         s if s == Status::Running as u8 => HealthStatus::Healthy,
         _ => HealthStatus::Degraded,
@@ -23,7 +22,7 @@ fn handle_status(stats: &Stats) -> anyhow::Result<StatusResponse> {
     Ok(StatusResponse {
         status: status as i32,
         cpu_pct: stats.cpu_pct.load(Ordering::Relaxed) as u32,
-        mem_bytes: stats.mem_bytes.load(Ordering::Relaxed),
+        mem_available_bytes: stats.mem_available_bytes.load(Ordering::Relaxed),
         last_beat: stats.last_beat.load(Ordering::Relaxed),
     })
 }

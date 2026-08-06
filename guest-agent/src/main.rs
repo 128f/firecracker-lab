@@ -6,12 +6,15 @@ use std::sync::atomic::Ordering;
 
 mod epoll;
 mod mount;
+mod proc_stats;
 mod protocol;
 mod pty;
 mod signals;
 mod stats;
 mod terminal;
 mod vsock_server;
+
+const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 use epoll::EpollGrid;
 use mount::mount_system_paths;
@@ -29,6 +32,16 @@ fn main() {
 
     let mut vsock_dispatcher = VsockDispatcher::new().unwrap();
     let stats = Arc::new(Stats::new());
+
+    {
+        let stats = stats.clone();
+        std::thread::spawn(move || {
+            loop {
+                stats.sample();
+                std::thread::sleep(SAMPLE_INTERVAL);
+            }
+        });
+    }
 
     let mut epoller = EpollGrid::new();
     epoller
