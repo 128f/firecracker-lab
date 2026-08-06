@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package agent;
 
+option go_package = "github.com/128f/fctl/agentpb";
+
 message Request {
     oneof request_type {
         StatusRequest status = 1;

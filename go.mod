@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.41.0
+	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.55.0
 )
 
