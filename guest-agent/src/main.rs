@@ -1,3 +1,4 @@
+use prost::Message;
 use rustix::buffer::spare_capacity;
 use rustix::event::epoll;
 use rustix::fs::{Mode, mkdir};
@@ -16,6 +17,8 @@ mod status_api {
     include!(concat!(env!("OUT_DIR"), "/agent.rs"));
 }
 use status_api::{HealthStatus, StatusResponse, request::RequestType};
+
+use crate::status_api::StatusRequest;
 
 // kernel sigset_t size on x86-64 = _NSIG/8 = 8 bytes (NOT userspace sizeof)
 const SIGSET_SIZE: usize = 8;
@@ -94,15 +97,15 @@ fn connect_signalfd() -> anyhow::Result<OwnedFd> {
     unsafe { Ok(OwnedFd::from_raw_fd(raw as i32)) }
 }
 
-struct VsockConnectionManager {
+struct VsockDispatcher {
     pub vsock_listener: VsockListener,
 }
 
-impl VsockConnectionManager {
-    fn new() -> std::io::Result<VsockConnectionManager> {
+impl VsockDispatcher {
+    fn new() -> std::io::Result<VsockDispatcher> {
         let listener = VsockListener::bind(&VsockAddr::new(VMADDR_CID_ANY, VSOCK_LISTEN_PORT))?;
         listener.set_nonblocking(true)?;
-        Ok(VsockConnectionManager {
+        Ok(VsockDispatcher {
             vsock_listener: listener,
         })
     }
@@ -123,26 +126,48 @@ impl VsockConnectionManager {
     }
 }
 
-fn handle_connection(mut stream: VsockStream, addr: VsockAddr) {
-    let mut buf = [0u8; 1024];
-    loop {
-        match stream.read(&mut buf) {
-            Ok(0) => {
-                println!("Stream closed");
-                return;
-            }
-            Ok(n) => {
-                println!("read {} bytes from stream", n);
-                continue;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-            Err(e) => {
-                println!("unknown error, quitting");
-                break;
-            }
-        }
+pub struct VsockConnectionHandler {
+    stream: VsockStream,
+    addr: VsockAddr,
+}
+
+impl VsockConnectionHandler {
+    pub fn new(stream: VsockStream, addr: VsockAddr) -> VsockConnectionHandler {
+        VsockConnectionHandler { stream, addr }
     }
-    println!("Stream exiting");
+
+    fn read_length_prefix(&mut self) -> std::io::Result<usize> {
+        let mut buf = [0u8; 4];
+        self.stream.read_exact(&mut buf)?;
+        Ok(u32::from_be_bytes(buf) as usize)
+    }
+
+    fn extract_payload(&mut self, size: usize) -> anyhow::Result<status_api::Request> {
+        let mut buf = vec![0u8; size];
+        self.stream.read_exact(&mut buf)?;
+        Ok(status_api::Request::decode(buf.as_slice())?)
+    }
+
+    fn send_response(&mut self, response: status_api::StatusResponse) -> anyhow::Result<()> {
+        let buffer = response.encode_to_vec();
+        let bytes = (buffer.len() as u32).to_be_bytes();
+        self.stream.write_all(&bytes)?;
+        self.stream.write_all(&buffer)?;
+        Ok(())
+    }
+}
+
+fn dispatch(req: status_api::Request) -> anyhow::Result<StatusResponse> {
+    match req.request_type {
+        Some(RequestType::Status(_status_req)) => handle_status(),
+        None => anyhow::bail!("request with no request_type set"),
+    }
+}
+
+fn handle_status() -> anyhow::Result<StatusResponse> {
+    Ok(StatusResponse {
+        status: HealthStatus::Healthy as i32,
+    })
 }
 
 fn setup_pty() -> pty_process::Result<(OwnedFd, OwnedFd)> {
@@ -304,7 +329,7 @@ fn main() {
     let sfd = connect_signalfd().unwrap();
     let (pty_fd, _) = setup_pty().unwrap();
 
-    let mut vsock_connection_manager = VsockConnectionManager::new().unwrap();
+    let mut vsock_dispatcher = VsockDispatcher::new().unwrap();
 
     let mut epoller = EpollGrid::new();
     epoller
@@ -319,7 +344,7 @@ fn main() {
     epoller
         .add_epoll(
             SignalSource::VsockListen,
-            vsock_connection_manager.vsock_listener.as_fd(),
+            vsock_dispatcher.vsock_listener.as_fd(),
         )
         .unwrap();
 
@@ -339,8 +364,20 @@ fn main() {
                     PtyStatus::HungUp => raw_terminal.restore(),
                 },
                 Some(SignalSource::VsockListen) => {
-                    for (stream, addr) in vsock_connection_manager.accept_connections() {
-                        std::thread::spawn(move || handle_connection(stream, addr));
+                    for (stream, addr) in vsock_dispatcher.accept_connections() {
+                        std::thread::spawn(move || {
+                            let mut handler = VsockConnectionHandler::new(stream, addr);
+                            let Ok(prefix) = handler.read_length_prefix() else {
+                                return;
+                            };
+                            let Ok(payload) = handler.extract_payload(prefix) else {
+                                return;
+                            };
+                            let Ok(response) = dispatch(payload) else {
+                                return;
+                            };
+                            let _ = handler.send_response(response);
+                        });
                     }
                 }
                 None => {} // unknown tag; ignore
