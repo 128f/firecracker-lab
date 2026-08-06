@@ -27,6 +27,7 @@ pub enum SignalSource {
     Stdin = 2,
     Pty = 3,
     VsockListen = 4,
+    Timer = 5,
 }
 
 impl SignalSource {
@@ -36,6 +37,7 @@ impl SignalSource {
             2 => Some(SignalSource::Stdin),
             3 => Some(SignalSource::Pty),
             4 => Some(SignalSource::VsockListen),
+            5 => Some(SignalSource::Timer),
             _ => None,
         }
     }

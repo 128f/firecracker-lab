@@ -12,6 +12,7 @@ mod pty;
 mod signals;
 mod stats;
 mod terminal;
+mod timerfd;
 mod vsock_server;
 
 const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
@@ -22,6 +23,7 @@ use pty::{PtyStatus, forward_pty, forward_stdin, setup_pty};
 use signals::{SignalSource, connect_signalfd, drain_signals};
 use stats::{Stats, Status};
 use terminal::RawTerminal;
+use timerfd::{connect_timerfd, drain_timerfd};
 use vsock_server::{VsockConnectionHandler, VsockDispatcher};
 
 fn main() {
@@ -32,16 +34,7 @@ fn main() {
 
     let mut vsock_dispatcher = VsockDispatcher::new().unwrap();
     let stats = Arc::new(Stats::new());
-
-    {
-        let stats = stats.clone();
-        std::thread::spawn(move || {
-            loop {
-                stats.sample();
-                std::thread::sleep(SAMPLE_INTERVAL);
-            }
-        });
-    }
+    let timer_fd = connect_timerfd(SAMPLE_INTERVAL).unwrap();
 
     let mut epoller = EpollGrid::new();
     epoller
@@ -58,6 +51,9 @@ fn main() {
             SignalSource::VsockListen,
             vsock_dispatcher.vsock_listener.as_fd(),
         )
+        .unwrap();
+    epoller
+        .add_epoll(SignalSource::Timer, timer_fd.as_fd())
         .unwrap();
 
     // set non-blocking for the pty connections
@@ -76,6 +72,10 @@ fn main() {
                     PtyStatus::Ok => {}
                     PtyStatus::HungUp => raw_terminal.restore(),
                 },
+                Some(SignalSource::Timer) => {
+                    drain_timerfd(timer_fd.as_fd());
+                    stats.sample();
+                }
                 Some(SignalSource::VsockListen) => {
                     for (stream, addr) in vsock_dispatcher.accept_connections() {
                         let stats = stats.clone();
