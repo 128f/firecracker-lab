@@ -8,6 +8,7 @@ The guest agent is planned to include an api, shell and heartbeat over vsock.
 
 - `firecracker` and `jailer` binaries (see `just deps` in this directory)
 - `vmlinux.bin` kernel
+- `mkfs.ext4` (`e2fsprogs`) — only required for `fctl image build`
 - `--data-dir` on a **reflink-capable filesystem** (btrfs or xfs) — see
   [Storage](#storage) below
 - Run as root
@@ -72,6 +73,48 @@ it in the state DB. Fails if `--name` is already registered; pick a new
 name or remove the old one from the DB first. The file is sanity-checked
 (size + ext2/3/4 superblock magic) but not fully validated — this is a
 single-operator tool, not a multi-tenant upload path.
+
+### image build
+
+Build a bootable ext4 rootfs directly from an OCI/Docker image reference
+(e.g. `docker.io/library/ubuntu:24.04`), without needing a pre-built
+`.ext4` file:
+
+```bash
+./fctl image build ubuntu:24.04 \
+  --guest-agent-binary ./guest-agent-bin \
+  -o ubuntu-24.04.ext4
+sudo ./fctl image import ubuntu-24.04.ext4 --name ubuntu
+```
+
+Flags:
+- `--guest-agent-binary path` — **required**. Path to a pre-built
+  linux `guest-agent` binary. This command does not compile it — see
+  [`guest-agent/build.sh`](guest-agent/build.sh).
+- `-o, --output path` — **required**. Output `.ext4` file path.
+- `--platform linux/amd64` — target platform to pull (this repo assumes
+  x86_64 throughout; changing this is unsupported)
+- `--init-path /bin/guest-agent` — where inside the rootfs to install the
+  guest agent. Must match `vm/vm.go`'s hardcoded `init=` boot arg — do
+  not change unless you also update `vm/vm.go`.
+- `--size 2048M` — ext4 filesystem size
+
+**Requires `mkfs.ext4`** (`e2fsprogs`) on PATH — the same way the rest of
+`fctl` requires `firecracker`/`jailer`/`ip` on a real Linux host. Pulling
+and flattening the image itself is pure Go (via `crane`) and works
+anywhere; only the final packing step needs a Linux host with `e2fsprogs`.
+
+This command flattens the image's layers (`docker export` semantics, OCI
+whiteouts resolved) into a single rootfs, writes the image's Entrypoint /
+Cmd / Env / WorkingDir / User into `/etc/fctl/image-config.json` inside
+the rootfs, and installs the guest agent as `/bin/guest-agent`. **This is
+currently the only way workload/entrypoint information reaches the guest
+agent** — images imported via plain `fctl image import` of a hand-built
+`.ext4` (e.g. from `just rootfs-ext4` or `guest-agent/build.sh`) have no
+`image-config.json` and the guest agent has nothing to read.
+
+It does **not** register the output into the state DB — run `fctl image
+import` afterward, same as any other `.ext4` file.
 
 ### create
 

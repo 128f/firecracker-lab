@@ -17,6 +17,7 @@ func newImageCmd(cfg *Config) *cobra.Command {
 		Short: "Manage the base rootfs image registry",
 	}
 	cmd.AddCommand(newImageImportCmd(cfg))
+	cmd.AddCommand(newImageBuildCmd(cfg))
 	cmd.AddCommand(newImageListCmd(cfg))
 	return cmd
 }
