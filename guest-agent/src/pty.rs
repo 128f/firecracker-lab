@@ -1,15 +1,43 @@
 use rustix::io::Errno;
+use serde::Deserialize;
+use std::fs;
 use std::io::{Write, stdin};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
-pub fn setup_pty() -> pty_process::Result<(OwnedFd, OwnedFd)> {
-    // TODO : s/unwrap/doinitrite/g
+#[derive(Deserialize)]
+struct ImageConfig {
+    #[serde(default = "default_cmd")]
+    cmd: Vec<String>,
+    #[serde(default)]
+    env: Vec<String>,
+    #[serde(default)]
+    working_dir: String,
+}
+
+fn default_cmd() -> Vec<String> {
+    vec!["/bin/sh".to_owned()]
+}
+
+pub fn setup_pty() -> anyhow::Result<(OwnedFd, OwnedFd)> {
+    let config_file = fs::read_to_string("/etc/fctl/image-config.json")?;
+    let config: ImageConfig = serde_json::from_str(&config_file)?;
+
     let (pty, pts) = pty_process::blocking::open()?;
     let pty_fd: OwnedFd = rustix::io::dup(pty.as_fd())?;
     let pts_fd: OwnedFd = rustix::io::dup(pts.as_fd())?;
-    pty_process::blocking::Command::new("/bin/sh")
-        .spawn(pts)
-        .unwrap();
+
+    let mut command = pty_process::blocking::Command::new(&config.cmd[0]);
+
+    command = command.args(&config.cmd[1..]);
+
+    let env_vars = config.env.iter().filter_map(|kv| kv.split_once("="));
+
+    for (key, value) in env_vars {
+        command = command.env(key, value);
+    }
+
+    command.spawn(pts)?;
+
     Ok((pty_fd, pts_fd))
 }
 
