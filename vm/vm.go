@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -223,7 +224,9 @@ func (n *iproute2NetworkProvisioner) TeardownTap(vm *state.VM) error {
 	r := n.r
 	r.log().Info("removing tap device", "vm", vm.ID, "tap", vm.Tap)
 	_ = run("ip", "link", "set", vm.Tap, "down")
-	_ = run("ip", "tuntap", "del", vm.Tap, "mode", "tap")
+	if err := run("ip", "tuntap", "del", vm.Tap, "mode", "tap"); err != nil {
+		return fmt.Errorf("delete tap: %w", err)
+	}
 	return nil
 }
 
@@ -278,24 +281,54 @@ func (r *Runner) Destroy(vm *state.VM) error {
 
 	time.Sleep(500 * time.Millisecond)
 
-	r.killPid(vm.ID)
+	if err := r.killPid(vm.ID); err != nil {
+		return err
+	}
 
-	_ = r.net().TeardownTap(vm)
+	if err := r.net().TeardownTap(vm); err != nil {
+		return err
+	}
 
 	r.log().Info("removing vm dir", "vm", vm.ID)
 	return os.RemoveAll(r.vmDir(vm.ID))
 }
 
 // killPid kills the process whose pid was recorded at r.pidPath(id), if any.
-func (r *Runner) killPid(id string) {
+// killPid kills the process whose pid was recorded at r.pidPath(id), if
+// any, and blocks until it has actually exited. That process isn't a
+// child of this one, so we poll for the pid to disappear rather than
+// os.Process.Wait.
+func (r *Runner) killPid(id string) error {
 	r.log().Info("killing process", "vm", id)
-	if data, err := os.ReadFile(r.pidPath(id)); err == nil {
-		var pid int
-		fmt.Sscanf(string(data), "%d", &pid)
-		if p, err := os.FindProcess(pid); err == nil {
-			p.Kill()
-		}
+	data, err := os.ReadFile(r.pidPath(id))
+	if err != nil {
+		return nil
 	}
+	var pid int
+	fmt.Sscanf(string(data), "%d", &pid)
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return nil
+	}
+	if err := p.Kill(); err != nil {
+		return nil
+	}
+
+	// If pid is our own child (as in tests, which launch it in-process),
+	// Wait reaps it and blocks until it's actually gone. If not, Wait
+	// fails immediately with ECHILD and we fall back to polling.
+	if _, err := p.Wait(); !errors.Is(err, syscall.ECHILD) {
+		return nil
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("process %d (vm %s) did not exit within 5s of SIGKILL", pid, id)
 }
 
 // snapshotFiles are the names, relative to both a VM's chroot root/ dir and
@@ -332,9 +365,13 @@ func (r *Runner) Snapshot(vm *state.VM, snapshotDir string) error {
 		}
 	}
 
-	r.killPid(vm.ID)
+	if err := r.killPid(vm.ID); err != nil {
+		return err
+	}
 
-	_ = r.net().TeardownTap(vm)
+	if err := r.net().TeardownTap(vm); err != nil {
+		return err
+	}
 
 	r.log().Info("removing vm dir", "vm", vm.ID)
 	return os.RemoveAll(r.vmDir(vm.ID))
