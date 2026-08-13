@@ -5,18 +5,18 @@ use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
 
 use crate::boot::signals::SignalSource;
 
-pub struct EpollGrid {
+pub struct Poller {
     epfd: OwnedFd,
     events: Vec<epoll::Event>,
     registered: Vec<(SignalSource, RawFd)>,
 }
 
-impl EpollGrid {
+impl Poller {
     // Creates the base epollfd
     pub fn new() -> Self {
         let epfd = epoll::create(epoll::CreateFlags::CLOEXEC).unwrap();
         let events = Vec::with_capacity(8);
-        EpollGrid {
+        Poller {
             epfd,
             events,
             registered: Vec::new(),

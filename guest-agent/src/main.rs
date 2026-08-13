@@ -15,7 +15,7 @@ const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 use boot::mount::{MountConfig, mount_system_paths};
 use boot::signals::{SignalSource, connect_signalfd, drain_signals};
-use scheduler::epoll::EpollGrid;
+use scheduler::epoll::Poller;
 use scheduler::timerfd::{connect_timerfd, drain_timerfd};
 use session::pty::{PtyStatus, forward_pty, forward_stdin, setup_pty};
 use session::terminal::RawTerminal;
@@ -32,7 +32,7 @@ fn main() {
     let stats = Arc::new(Stats::new());
     let timer_fd = connect_timerfd(SAMPLE_INTERVAL).unwrap();
 
-    let mut epoller = EpollGrid::new();
+    let mut epoller = Poller::new();
     epoller
         .add_epoll(SignalSource::Signal, sfd.as_fd())
         .unwrap();
