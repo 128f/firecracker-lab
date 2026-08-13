@@ -4,27 +4,23 @@ use std::os::fd::AsFd;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-mod epoll;
-mod mount;
+mod boot;
 mod proc_stats;
-mod protocol;
-mod pty;
-mod signals;
+mod scheduler;
+mod session;
 mod stats;
-mod terminal;
-mod timerfd;
-mod vsock_server;
+mod transport;
 
 const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
-use epoll::EpollGrid;
-use mount::mount_system_paths;
-use pty::{PtyStatus, forward_pty, forward_stdin, setup_pty};
-use signals::{SignalSource, connect_signalfd, drain_signals};
+use boot::mount::mount_system_paths;
+use boot::signals::{SignalSource, connect_signalfd, drain_signals};
+use scheduler::epoll::EpollGrid;
+use scheduler::timerfd::{connect_timerfd, drain_timerfd};
+use session::pty::{PtyStatus, forward_pty, forward_stdin, setup_pty};
+use session::terminal::RawTerminal;
 use stats::{Stats, Status};
-use terminal::RawTerminal;
-use timerfd::{connect_timerfd, drain_timerfd};
-use vsock_server::{VsockConnectionHandler, VsockDispatcher};
+use transport::vsock::{VsockConnectionHandler, VsockDispatcher};
 
 fn main() {
     let mut raw_terminal = RawTerminal::make_raw_stdin().unwrap();
@@ -87,7 +83,7 @@ fn main() {
                             let Ok(payload) = handler.extract_payload(prefix) else {
                                 return;
                             };
-                            let Ok(response) = protocol::dispatch(payload, &stats) else {
+                            let Ok(response) = transport::dispatch::dispatch(payload, &stats) else {
                                 return;
                             };
                             let _ = handler.send_response(response);

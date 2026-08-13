@@ -2,7 +2,7 @@ use prost::Message;
 use std::io::{Read, Write};
 use vsock::{VsockAddr, VsockListener, VsockStream};
 
-use crate::protocol;
+use crate::transport::wire;
 
 // VMADDR_CID_ANY = 0xFFFFFFFF (u32::MAX) — accept from any CID
 const VMADDR_CID_ANY: u32 = u32::MAX;
@@ -53,13 +53,13 @@ impl VsockConnectionHandler {
         Ok(u32::from_be_bytes(buf) as usize)
     }
 
-    pub fn extract_payload(&mut self, size: usize) -> anyhow::Result<protocol::Request> {
+    pub fn extract_payload(&mut self, size: usize) -> anyhow::Result<wire::Request> {
         let mut buf = vec![0u8; size];
         self.stream.read_exact(&mut buf)?;
-        Ok(protocol::Request::decode(buf.as_slice())?)
+        Ok(wire::Request::decode(buf.as_slice())?)
     }
 
-    pub fn send_response(&mut self, response: protocol::StatusResponse) -> anyhow::Result<()> {
+    pub fn send_response(&mut self, response: wire::StatusResponse) -> anyhow::Result<()> {
         let buffer = response.encode_to_vec();
         let bytes = (buffer.len() as u32).to_be_bytes();
         self.stream.write_all(&bytes)?;

@@ -1,13 +1,9 @@
 use std::sync::atomic::Ordering;
 
 use crate::stats::{Stats, Status};
+use crate::transport::wire::{HealthStatus, RequestType, StatusResponse};
 
-mod status_api {
-    include!(concat!(env!("OUT_DIR"), "/agent.rs"));
-}
-pub use status_api::{HealthStatus, Request, StatusResponse, request::RequestType};
-
-pub fn dispatch(req: status_api::Request, stats: &Stats) -> anyhow::Result<StatusResponse> {
+pub fn dispatch(req: crate::transport::wire::Request, stats: &Stats) -> anyhow::Result<StatusResponse> {
     match req.request_type {
         Some(RequestType::Status(_status_req)) => handle_status(stats),
         None => anyhow::bail!("request with no request_type set"),

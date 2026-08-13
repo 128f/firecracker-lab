@@ -3,7 +3,7 @@ use rustix::event::epoll;
 use rustix::io;
 use std::os::fd::{BorrowedFd, OwnedFd};
 
-use crate::signals::SignalSource;
+use crate::boot::signals::SignalSource;
 
 pub struct EpollGrid {
     epfd: OwnedFd,
