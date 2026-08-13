@@ -80,7 +80,7 @@ impl VsockConnectionHandler {
         Ok(wire::Request::decode(buf.as_slice())?)
     }
 
-    pub fn send_response(&mut self, response: wire::StatusResponse) -> anyhow::Result<()> {
+    pub fn send_response(&mut self, response: wire::Response) -> anyhow::Result<()> {
         let buffer = response.encode_to_vec();
         let bytes = (buffer.len() as u32).to_be_bytes();
         self.stream.write_all(&bytes)?;

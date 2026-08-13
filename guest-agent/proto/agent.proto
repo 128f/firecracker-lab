@@ -7,10 +7,21 @@ option go_package = "github.com/128f/fctl/agentpb";
 message Request {
     oneof request_type {
         StatusRequest status = 1;
+        VmRestoreNotification vm_restore = 2;
     }
 }
 
 message StatusRequest {
+}
+
+message Response {
+    oneof response_type {
+        StatusResponse status = 1;
+        Ack ack = 2;
+    }
+}
+
+message Ack {
 }
 
 enum HealthStatus {
@@ -23,4 +34,8 @@ message StatusResponse {
     uint32 cpu_pct = 2;
     uint64 mem_available_bytes = 3;
     uint64 last_beat = 4;
+}
+
+message VmRestoreNotification {
+    uint64 restored_at = 1;
 }
