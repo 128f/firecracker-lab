@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/128f/fctl/state"
 	"github.com/128f/fctl/vm/vmtest"
@@ -71,6 +72,25 @@ func writeFixtureImages(t *testing.T, labDir string) {
 	}
 }
 
+// killTestProcess registers a best-effort cleanup that kills whatever
+// process is recorded at r.pidPath(id), for tests that launch a (fake)
+// jailer process via Run/Restore without tearing it down themselves via
+// Destroy/Snapshot.
+func killTestProcess(t *testing.T, r *Runner, id string) {
+	t.Helper()
+	t.Cleanup(func() {
+		data, err := os.ReadFile(r.pidPath(id))
+		if err != nil {
+			return
+		}
+		var pid int
+		fmt.Sscanf(string(data), "%d", &pid)
+		if p, err := os.FindProcess(pid); err == nil {
+			p.Kill()
+		}
+	})
+}
+
 func TestRunHappyPath(t *testing.T) {
 	labDir := tempLabDir(t)
 	writeFixtureImages(t, labDir)
@@ -87,6 +107,7 @@ func TestRunHappyPath(t *testing.T) {
 	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	killTestProcess(t, r, vm.ID)
 
 	reqs := api.Requests()
 	wantPaths := []string{
@@ -94,6 +115,7 @@ func TestRunHappyPath(t *testing.T) {
 		"/drives/rootfs",
 		"/machine-config",
 		"/network-interfaces/eth0",
+		"/vsock",
 		"/actions",
 	}
 	if len(reqs) != len(wantPaths) {
@@ -148,6 +170,7 @@ func TestRunErrorPathStopsAtFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run: expected error, got nil")
 	}
+	killTestProcess(t, r, vm.ID)
 
 	reqs := api.Requests()
 	if len(reqs) != 3 {
@@ -206,6 +229,295 @@ func TestDestroy(t *testing.T) {
 	if _, err := os.Stat(r.vmDir(vm.ID)); !os.IsNotExist(err) {
 		t.Errorf("vmDir still exists after Destroy: err = %v", err)
 	}
+}
+
+// TestDestroyKillsJailerProcess guards against a regression where Run wrote
+// fctl's own PID into pidPath instead of the jailer/firecracker process's
+// PID (see cmd.Process.Pid in Run) — Destroy would then either no-op
+// against an already-gone PID or, worse, signal an unrelated process that
+// happened to reuse it. This asserts Destroy kills the actual process
+// Launch started.
+func TestDestroyKillsJailerProcess(t *testing.T) {
+	labDir := tempLabDir(t)
+	writeFixtureImages(t, labDir)
+
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	launcher := &vmtest.FakeJailerLauncher{API: api}
+	r.Jailer = launcher
+	r.Net = &vmtest.NoopNetworkProvisioner{}
+
+	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	killTestProcess(t, r, vm.ID) // best-effort backstop if the assertions below fail early
+
+	cmd := launcher.LaunchedProcess()
+	if cmd == nil {
+		t.Fatal("no process launched")
+	}
+
+	data, err := os.ReadFile(r.pidPath(vm.ID))
+	if err != nil {
+		t.Fatalf("read pid file: %v", err)
+	}
+	var recordedPid int
+	fmt.Sscanf(string(data), "%d", &recordedPid)
+	if recordedPid != cmd.Process.Pid {
+		t.Fatalf("pidPath recorded pid %d, want the launched jailer process's pid %d", recordedPid, cmd.Process.Pid)
+	}
+	if recordedPid == os.Getpid() {
+		t.Fatalf("pidPath recorded this test process's own pid (%d)", recordedPid)
+	}
+
+	if err := r.Destroy(vm); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+
+	// Wait confirms the process actually terminated (and reaps it, so it
+	// doesn't linger as a zombie): a "sleep 300" that exits after Destroy,
+	// long before its own timeout, must have been killed.
+	waitErr := make(chan error, 1)
+	go func() { waitErr <- cmd.Wait() }()
+	select {
+	case err := <-waitErr:
+		if err == nil {
+			t.Error("sleep process exited cleanly; expected it to be killed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("process did not exit after Destroy")
+	}
+}
+
+// seedSnapshottableVM creates the on-disk state Snapshot expects to find for
+// vm: a chroot root/ dir containing rootfs.ext4, snapshot.bin, and mem.bin
+// (standing in for what a live Run + real firecracker's /snapshot/create
+// would have produced), plus a pid file. The pid is deliberately bogus
+// (almost certainly unused) rather than this test process's own pid, since
+// Snapshot kills whatever pid it finds there — using a real Run() here
+// would plant this test binary's own pid and Snapshot would kill it.
+func seedSnapshottableVM(t *testing.T, r *Runner, vm *state.VM) {
+	t.Helper()
+	root := filepath.Join(r.vmDir(vm.ID), "root")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("MkdirAll root: %v", err)
+	}
+	for name, content := range map[string]string{
+		"rootfs.ext4":  "rootfs-data",
+		"snapshot.bin": "snapshot-data",
+		"mem.bin":      "mem-data",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write %s fixture: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(r.pidPath(vm.ID), []byte("999999"), 0644); err != nil {
+		t.Fatalf("write pid file: %v", err)
+	}
+}
+
+func TestSnapshotHappyPath(t *testing.T) {
+	labDir := tempLabDir(t)
+
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+	seedSnapshottableVM(t, r, vm)
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	if err := api.Start(); err != nil {
+		t.Fatalf("api.Start: %v", err)
+	}
+	noop := &vmtest.NoopNetworkProvisioner{}
+	r.Net = noop
+
+	snapDir := filepath.Join(labDir, "snapshots", "mysnap")
+	if err := r.Snapshot(vm, snapDir); err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+
+	reqs := api.Requests()
+	if len(reqs) != 2 {
+		t.Fatalf("got %d requests, want 2: %+v", len(reqs), reqs)
+	}
+	if reqs[0].Method != "PATCH" || reqs[0].Path != "/vm" {
+		t.Errorf("request = %s %s, want PATCH /vm", reqs[0].Method, reqs[0].Path)
+	}
+	if reqs[0].Body["state"] != "Paused" {
+		t.Errorf("state = %v, want Paused", reqs[0].Body["state"])
+	}
+	if reqs[1].Method != "PUT" || reqs[1].Path != "/snapshot/create" {
+		t.Errorf("request = %s %s, want PUT /snapshot/create", reqs[1].Method, reqs[1].Path)
+	}
+	if reqs[1].Body["snapshot_type"] != "Full" {
+		t.Errorf("snapshot_type = %v, want Full", reqs[1].Body["snapshot_type"])
+	}
+	if reqs[1].Body["snapshot_path"] != "/snapshot.bin" {
+		t.Errorf("snapshot_path = %v, want /snapshot.bin", reqs[1].Body["snapshot_path"])
+	}
+	if reqs[1].Body["mem_file_path"] != "/mem.bin" {
+		t.Errorf("mem_file_path = %v, want /mem.bin", reqs[1].Body["mem_file_path"])
+	}
+
+	for name, want := range map[string]string{
+		"snapshot.bin": "snapshot-data",
+		"mem.bin":      "mem-data",
+		"rootfs.ext4":  "rootfs-data",
+	} {
+		got, err := os.ReadFile(filepath.Join(snapDir, name))
+		if err != nil {
+			t.Fatalf("read snapshot dir %s: %v", name, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s content = %q, want %q", name, got, want)
+		}
+	}
+
+	if _, err := os.Stat(r.vmDir(vm.ID)); !os.IsNotExist(err) {
+		t.Errorf("vmDir still exists after Snapshot: err = %v", err)
+	}
+
+	if len(noop.Calls) != 1 || noop.Calls[0] != "teardown:"+vm.Tap {
+		t.Errorf("network calls = %v, want [teardown:%s]", noop.Calls, vm.Tap)
+	}
+}
+
+func TestSnapshotErrorPathStopsAtFailure(t *testing.T) {
+	labDir := tempLabDir(t)
+
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+	seedSnapshottableVM(t, r, vm)
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	if err := api.Start(); err != nil {
+		t.Fatalf("api.Start: %v", err)
+	}
+	api.FailNext("/snapshot/create", 500)
+	noop := &vmtest.NoopNetworkProvisioner{}
+	r.Net = noop
+
+	snapDir := filepath.Join(labDir, "snapshots", "mysnap")
+	if err := r.Snapshot(vm, snapDir); err == nil {
+		t.Fatal("Snapshot: expected error, got nil")
+	}
+
+	if _, err := os.Stat(r.vmDir(vm.ID)); err != nil {
+		t.Errorf("vmDir should still exist after failed Snapshot: %v", err)
+	}
+	if len(noop.Calls) != 0 {
+		t.Errorf("network calls = %v, want none after failure", noop.Calls)
+	}
+}
+
+func TestRestoreHappyPath(t *testing.T) {
+	labDir := tempLabDir(t)
+
+	snapDir := filepath.Join(labDir, "snapshots", "mysnap")
+	if err := os.MkdirAll(snapDir, 0755); err != nil {
+		t.Fatalf("MkdirAll snapDir: %v", err)
+	}
+	fixtures := map[string]string{
+		"snapshot.bin": "snapshot-data",
+		"mem.bin":      "mem-data",
+		"rootfs.ext4":  "rootfs-data",
+	}
+	for name, content := range fixtures {
+		if err := os.WriteFile(filepath.Join(snapDir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write fixture %s: %v", name, err)
+		}
+	}
+
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
+	noop := &vmtest.NoopNetworkProvisioner{}
+	r.Net = noop
+
+	if err := r.Restore(vm, snapDir, false); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	killTestProcess(t, r, vm.ID)
+
+	reqs := api.Requests()
+	if len(reqs) != 1 {
+		t.Fatalf("got %d requests, want 1: %+v", len(reqs), reqs)
+	}
+	if reqs[0].Method != "PUT" || reqs[0].Path != "/snapshot/load" {
+		t.Fatalf("request = %s %s, want PUT /snapshot/load", reqs[0].Method, reqs[0].Path)
+	}
+	if reqs[0].Body["snapshot_path"] != "/snapshot.bin" {
+		t.Errorf("snapshot_path = %v, want /snapshot.bin", reqs[0].Body["snapshot_path"])
+	}
+	memBackend, _ := reqs[0].Body["mem_backend"].(map[string]any)
+	if memBackend["backend_type"] != "File" || memBackend["backend_path"] != "/mem.bin" {
+		t.Errorf("mem_backend = %v, want {backend_type: File, backend_path: /mem.bin}", memBackend)
+	}
+	if resume, _ := reqs[0].Body["resume_vm"].(bool); !resume {
+		t.Errorf("resume_vm = %v, want true", reqs[0].Body["resume_vm"])
+	}
+	overrides, _ := reqs[0].Body["network_overrides"].([]any)
+	if len(overrides) != 1 {
+		t.Fatalf("network_overrides = %v, want 1 entry", overrides)
+	}
+	override, _ := overrides[0].(map[string]any)
+	if override["iface_id"] != "eth0" || override["host_dev_name"] != vm.Tap {
+		t.Errorf("network_overrides[0] = %v, want {iface_id: eth0, host_dev_name: %s}", override, vm.Tap)
+	}
+
+	root := filepath.Join(r.vmDir(vm.ID), "root")
+	for name, want := range fixtures {
+		got, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatalf("read chroot %s: %v", name, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s content = %q, want %q", name, got, want)
+		}
+	}
+
+	if len(noop.Calls) != 1 || noop.Calls[0] != "setup:"+vm.Tap {
+		t.Errorf("network calls = %v, want [setup:%s]", noop.Calls, vm.Tap)
+	}
+
+	if _, err := os.Stat(r.pidPath(vm.ID)); err != nil {
+		t.Errorf("pid file not written: %v", err)
+	}
+}
+
+func TestRestoreErrorPathStopsAtFailure(t *testing.T) {
+	labDir := tempLabDir(t)
+
+	snapDir := filepath.Join(labDir, "snapshots", "mysnap")
+	if err := os.MkdirAll(snapDir, 0755); err != nil {
+		t.Fatalf("MkdirAll snapDir: %v", err)
+	}
+	for _, name := range []string{"snapshot.bin", "mem.bin", "rootfs.ext4"} {
+		if err := os.WriteFile(filepath.Join(snapDir, name), []byte(name), 0644); err != nil {
+			t.Fatalf("write fixture %s: %v", name, err)
+		}
+	}
+
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	api.FailNext("/snapshot/load", 500)
+	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
+	r.Net = &vmtest.NoopNetworkProvisioner{}
+
+	if err := r.Restore(vm, snapDir, false); err == nil {
+		t.Fatal("Restore: expected error, got nil")
+	}
+	killTestProcess(t, r, vm.ID)
 }
 
 func TestSetupChroot(t *testing.T) {

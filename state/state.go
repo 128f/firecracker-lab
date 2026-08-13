@@ -26,6 +26,14 @@ type Image struct {
 	SizeBytes int64  `json:"size_bytes"`
 }
 
+type Snapshot struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Dir    string `json:"dir"`
+	VCPUs  int    `json:"vcpus"`
+	MemMiB int    `json:"mem_mib"`
+}
+
 type State struct {
 	db *sql.DB
 }
@@ -49,6 +57,15 @@ CREATE TABLE IF NOT EXISTS images (
     name       TEXT NOT NULL UNIQUE,
     path       TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    dir        TEXT NOT NULL,
+    vcpus      INTEGER NOT NULL,
+    mem_mib    INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -248,6 +265,55 @@ func (s *State) ListImages() ([]*Image, error) {
 		images = append(images, img)
 	}
 	return images, rows.Err()
+}
+
+// InsertSnapshot records a newly-created snapshot.
+func (s *State) InsertSnapshot(name, dir string, vcpus, memMiB int) (*Snapshot, error) {
+	snap := &Snapshot{ID: uuid.NewString(), Name: name, Dir: dir, VCPUs: vcpus, MemMiB: memMiB}
+	_, err := s.db.Exec(
+		`INSERT INTO snapshots (id, name, dir, vcpus, mem_mib) VALUES (?, ?, ?, ?, ?)`,
+		snap.ID, snap.Name, snap.Dir, snap.VCPUs, snap.MemMiB,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return snap, nil
+}
+
+// GetSnapshotByName returns the snapshot with the given name.
+func (s *State) GetSnapshotByName(name string) (*Snapshot, error) {
+	return s.scanSnapshot(s.db.QueryRow(`SELECT id, name, dir, vcpus, mem_mib FROM snapshots WHERE name = ?`, name))
+}
+
+func (s *State) scanSnapshot(row *sql.Row) (*Snapshot, error) {
+	snap := &Snapshot{}
+	err := row.Scan(&snap.ID, &snap.Name, &snap.Dir, &snap.VCPUs, &snap.MemMiB)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return snap, nil
+}
+
+// ListSnapshots returns all saved snapshots.
+func (s *State) ListSnapshots() ([]*Snapshot, error) {
+	rows, err := s.db.Query(`SELECT id, name, dir, vcpus, mem_mib FROM snapshots`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var snaps []*Snapshot
+	for rows.Next() {
+		snap := &Snapshot{}
+		if err := rows.Scan(&snap.ID, &snap.Name, &snap.Dir, &snap.VCPUs, &snap.MemMiB); err != nil {
+			return nil, err
+		}
+		snaps = append(snaps, snap)
+	}
+	return snaps, rows.Err()
 }
 
 func tapName(i int) string { return fmt.Sprintf("tap%d", i) }

@@ -49,7 +49,11 @@ var apiRoutes = []string{
 	"/drives/rootfs",
 	"/machine-config",
 	"/network-interfaces/eth0",
+	"/vsock",
 	"/actions",
+	"/vm",
+	"/snapshot/create",
+	"/snapshot/load",
 }
 
 // Start creates the socket's parent directory (if needed) and begins
@@ -131,13 +135,35 @@ func (f *FakeFirecracker) Close() {
 // instead of exec'ing the real jailer/firecracker binaries.
 type FakeJailerLauncher struct {
 	API *FakeFirecracker
+
+	mu  sync.Mutex
+	cmd *exec.Cmd
 }
 
 func (f *FakeJailerLauncher) Launch(vm *state.VM, attach bool) (*exec.Cmd, error) {
 	if err := f.API.Start(); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	// Stand in for the real jailer with a genuine, killable child process,
+	// so callers that record cmd.Process.Pid and later kill it (Destroy,
+	// Snapshot) exercise real kill semantics instead of an empty *exec.Cmd.
+	cmd := exec.Command("sleep", "300")
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start fake jailer process: %w", err)
+	}
+	f.mu.Lock()
+	f.cmd = cmd
+	f.mu.Unlock()
+	return cmd, nil
+}
+
+// LaunchedProcess returns the *exec.Cmd most recently started by Launch,
+// so tests can inspect or Wait on it (e.g. to confirm a kill actually
+// terminated it, and to reap it rather than leaving a zombie).
+func (f *FakeJailerLauncher) LaunchedProcess() *exec.Cmd {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cmd
 }
 
 // NoopNetworkProvisioner is a vm.NetworkProvisioner that records calls
