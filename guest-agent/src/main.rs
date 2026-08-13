@@ -17,13 +17,13 @@ use boot::mount::{MountConfig, mount_system_paths};
 use boot::signals::{SignalSource, connect_signalfd, drain_signals};
 use scheduler::epoll::{PollConfig, Poller};
 use scheduler::timerfd::{connect_timerfd, drain_timerfd};
-use session::pty::{PtyStatus, forward_pty, forward_stdin, setup_pty};
+use session::pty::{PtySession, setup_pty};
 use session::terminal::RawTerminal;
 use stats::{Stats, Status};
 use transport::vsock::VsockDispatcher;
 
 fn main() {
-    let mut raw_terminal = RawTerminal::make_raw_stdin().unwrap();
+    let raw_terminal = RawTerminal::make_raw_stdin().unwrap();
     mount_system_paths(MountConfig::default()).unwrap();
     let sfd = connect_signalfd().unwrap();
     let (pty_fd, _) = setup_pty().unwrap();
@@ -51,18 +51,15 @@ fn main() {
     fcntl_setfl(&pty_fd, fcntl_getfl(&pty_fd).unwrap() | OFlags::NONBLOCK).unwrap();
     fcntl_setfl(stdin(), fcntl_getfl(stdin()).unwrap() | OFlags::NONBLOCK).unwrap();
 
-    let pty_fd = pty_fd.try_clone().unwrap();
+    let mut pty_session = PtySession::new(pty_fd.try_clone().unwrap(), raw_terminal);
     stats.status.store(Status::Running as u8, Ordering::Relaxed);
     loop {
         // consume
         for source in epoller.get_events() {
             match source {
                 Some(SignalSource::Signal) => drain_signals(sfd.as_fd()),
-                Some(SignalSource::Stdin) => forward_stdin(pty_fd.as_fd()),
-                Some(SignalSource::Pty) => match forward_pty(pty_fd.as_fd()) {
-                    PtyStatus::Ok => {}
-                    PtyStatus::HungUp => raw_terminal.restore(),
-                },
+                Some(SignalSource::Stdin) => pty_session.handle_stdin(),
+                Some(SignalSource::Pty) => pty_session.handle_pty(),
                 Some(SignalSource::Timer) => {
                     drain_timerfd(timer_fd.as_fd());
                     stats.sample();

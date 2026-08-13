@@ -4,6 +4,8 @@ use std::fs;
 use std::io::{Write, stdin};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
+use crate::session::terminal::RawTerminal;
+
 #[derive(Deserialize)]
 struct ImageConfig {
     #[serde(default = "default_cmd")]
@@ -91,5 +93,27 @@ pub fn forward_pty(pty_fd: BorrowedFd) -> PtyStatus {
             Err(Errno::INTR) => continue,              // interrupted; retry next loop
             Err(_e) => return PtyStatus::Ok,           // TODO: actually handle the error tho
         };
+    }
+}
+
+pub struct PtySession {
+    pty_fd: OwnedFd,
+    terminal: RawTerminal,
+}
+
+impl PtySession {
+    pub fn new(pty_fd: OwnedFd, terminal: RawTerminal) -> PtySession {
+        PtySession { pty_fd, terminal }
+    }
+
+    pub fn handle_stdin(&self) {
+        forward_stdin(self.pty_fd.as_fd());
+    }
+
+    pub fn handle_pty(&mut self) {
+        match forward_pty(self.pty_fd.as_fd()) {
+            PtyStatus::Ok => {}
+            PtyStatus::HungUp => self.terminal.restore(),
+        }
     }
 }
