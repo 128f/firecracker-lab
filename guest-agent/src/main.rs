@@ -13,7 +13,7 @@ mod transport;
 
 const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
-use boot::mount::mount_system_paths;
+use boot::mount::{MountConfig, mount_system_paths};
 use boot::signals::{SignalSource, connect_signalfd, drain_signals};
 use scheduler::epoll::EpollGrid;
 use scheduler::timerfd::{connect_timerfd, drain_timerfd};
@@ -24,7 +24,7 @@ use transport::vsock::{VsockConnectionHandler, VsockDispatcher};
 
 fn main() {
     let mut raw_terminal = RawTerminal::make_raw_stdin().unwrap();
-    mount_system_paths();
+    mount_system_paths(MountConfig::default()).unwrap();
     let sfd = connect_signalfd().unwrap();
     let (pty_fd, _) = setup_pty().unwrap();
 
