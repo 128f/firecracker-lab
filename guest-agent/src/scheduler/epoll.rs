@@ -1,13 +1,14 @@
 use rustix::buffer::spare_capacity;
 use rustix::event::epoll;
 use rustix::io;
-use std::os::fd::{BorrowedFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
 
 use crate::boot::signals::SignalSource;
 
 pub struct EpollGrid {
     epfd: OwnedFd,
     events: Vec<epoll::Event>,
+    registered: Vec<(SignalSource, RawFd)>,
 }
 
 impl EpollGrid {
@@ -15,17 +16,55 @@ impl EpollGrid {
     pub fn new() -> Self {
         let epfd = epoll::create(epoll::CreateFlags::CLOEXEC).unwrap();
         let events = Vec::with_capacity(8);
-        EpollGrid { epfd, events }
+        EpollGrid {
+            epfd,
+            events,
+            registered: Vec::new(),
+        }
     }
 
-    pub fn add_epoll(&self, signal_tag: SignalSource, fd: BorrowedFd) -> io::Result<()> {
-        epoll::add(
-            &self.epfd,
-            fd,
-            epoll::EventData::new_u64(signal_tag as u64),
-            epoll::EventFlags::IN,
-        )?;
+    /// Registers `fd` under `signal_tag`. Safe to call more than once (e.g.
+    /// after a snapshot restore re-runs boot): if `fd` is already
+    /// registered, its tag/flags are updated in place instead of erroring.
+    pub fn add_epoll(&mut self, signal_tag: SignalSource, fd: BorrowedFd) -> io::Result<()> {
+        let data = epoll::EventData::new_u64(signal_tag as u64);
+        match epoll::add(&self.epfd, fd, data, epoll::EventFlags::IN) {
+            Ok(()) => {}
+            Err(io::Errno::EXIST) => epoll::modify(&self.epfd, fd, data, epoll::EventFlags::IN)?,
+            Err(e) => return Err(e),
+        }
+        let raw = fd.as_raw_fd();
+        match self.registered.iter_mut().find(|(_, r)| *r == raw) {
+            Some(entry) => entry.0 = signal_tag,
+            None => self.registered.push((signal_tag, raw)),
+        }
         Ok(())
+    }
+
+    /// Unregisters `fd`. No-op if it wasn't registered.
+    pub fn remove_epoll(&mut self, fd: BorrowedFd) -> io::Result<()> {
+        match epoll::delete(&self.epfd, fd) {
+            Ok(()) | Err(io::Errno::NOENT) => {}
+            Err(e) => return Err(e),
+        }
+        let raw = fd.as_raw_fd();
+        self.registered.retain(|(_, r)| *r != raw);
+        Ok(())
+    }
+
+    /// Iterates over the currently registered (tag, fd) pairs.
+    pub fn registrations(&self) -> impl Iterator<Item = (SignalSource, RawFd)> + '_ {
+        self.registered.iter().copied()
+    }
+
+    /// Removes every current registration, e.g. before re-running boot on a
+    /// snapshot restore. Individual removal failures are ignored since a
+    /// stale/closed fd is already effectively gone from epoll's perspective.
+    pub fn purge_all(&mut self) {
+        for (_, raw) in self.registered.drain(..) {
+            let fd = unsafe { BorrowedFd::borrow_raw(raw) };
+            let _ = epoll::delete(&self.epfd, fd);
+        }
     }
 
     pub fn get_events(&mut self) -> impl Iterator<Item = Option<SignalSource>> + '_ {

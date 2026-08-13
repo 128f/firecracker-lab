@@ -21,7 +21,7 @@ const WNOHANG: usize = 1; // return immediately if none ready
 
 /// SignalSource is the tag we apply to our signalfd signals
 #[repr(u64)]
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SignalSource {
     Signal = 1,
     Stdin = 2,
