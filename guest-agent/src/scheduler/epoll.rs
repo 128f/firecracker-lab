@@ -5,6 +5,23 @@ use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
 
 use crate::boot::signals::SignalSource;
 
+pub struct PollSpec<'fd> {
+    pub tag: SignalSource,
+    pub fd: BorrowedFd<'fd>,
+}
+
+#[derive(Default)]
+pub struct PollConfig<'fd> {
+    pub specs: Vec<PollSpec<'fd>>,
+}
+
+impl<'fd> PollConfig<'fd> {
+    pub fn with(mut self, tag: SignalSource, fd: BorrowedFd<'fd>) -> Self {
+        self.specs.push(PollSpec { tag, fd });
+        self
+    }
+}
+
 pub struct Poller {
     epfd: OwnedFd,
     events: Vec<epoll::Event>,
@@ -37,6 +54,14 @@ impl Poller {
         match self.registered.iter_mut().find(|(_, r)| *r == raw) {
             Some(entry) => entry.0 = signal_tag,
             None => self.registered.push((signal_tag, raw)),
+        }
+        Ok(())
+    }
+
+    /// Registers every spec in `config` in one call.
+    pub fn add_all(&mut self, config: PollConfig) -> io::Result<()> {
+        for spec in config.specs {
+            self.add_epoll(spec.tag, spec.fd)?;
         }
         Ok(())
     }

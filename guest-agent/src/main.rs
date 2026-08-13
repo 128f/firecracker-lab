@@ -15,7 +15,7 @@ const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 use boot::mount::{MountConfig, mount_system_paths};
 use boot::signals::{SignalSource, connect_signalfd, drain_signals};
-use scheduler::epoll::Poller;
+use scheduler::epoll::{PollConfig, Poller};
 use scheduler::timerfd::{connect_timerfd, drain_timerfd};
 use session::pty::{PtyStatus, forward_pty, forward_stdin, setup_pty};
 use session::terminal::RawTerminal;
@@ -34,22 +34,17 @@ fn main() {
 
     let mut epoller = Poller::new();
     epoller
-        .add_epoll(SignalSource::Signal, sfd.as_fd())
-        .unwrap();
-    epoller
-        .add_epoll(SignalSource::Stdin, stdin().as_fd())
-        .unwrap();
-    epoller
-        .add_epoll(SignalSource::Pty, pty_fd.as_fd())
-        .unwrap();
-    epoller
-        .add_epoll(
-            SignalSource::VsockListen,
-            vsock_dispatcher.vsock_listener.as_fd(),
+        .add_all(
+            PollConfig::default()
+                .with(SignalSource::Signal, sfd.as_fd())
+                .with(SignalSource::Stdin, stdin().as_fd())
+                .with(SignalSource::Pty, pty_fd.as_fd())
+                .with(
+                    SignalSource::VsockListen,
+                    vsock_dispatcher.vsock_listener.as_fd(),
+                )
+                .with(SignalSource::Timer, timer_fd.as_fd()),
         )
-        .unwrap();
-    epoller
-        .add_epoll(SignalSource::Timer, timer_fd.as_fd())
         .unwrap();
 
     // set non-blocking for the pty connections
