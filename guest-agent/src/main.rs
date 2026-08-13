@@ -20,7 +20,7 @@ use scheduler::timerfd::{connect_timerfd, drain_timerfd};
 use session::pty::{PtyStatus, forward_pty, forward_stdin, setup_pty};
 use session::terminal::RawTerminal;
 use stats::{Stats, Status};
-use transport::vsock::{VsockConnectionHandler, VsockDispatcher};
+use transport::vsock::VsockDispatcher;
 
 fn main() {
     let mut raw_terminal = RawTerminal::make_raw_stdin().unwrap();
@@ -67,24 +67,7 @@ fn main() {
                     drain_timerfd(timer_fd.as_fd());
                     stats.sample();
                 }
-                Some(SignalSource::VsockListen) => {
-                    for (stream, addr) in vsock_dispatcher.accept_connections() {
-                        let stats = stats.clone();
-                        std::thread::spawn(move || {
-                            let mut handler = VsockConnectionHandler::new(stream, addr);
-                            let Ok(prefix) = handler.read_length_prefix() else {
-                                return;
-                            };
-                            let Ok(payload) = handler.extract_payload(prefix) else {
-                                return;
-                            };
-                            let Ok(response) = transport::dispatch::dispatch(payload, &stats) else {
-                                return;
-                            };
-                            let _ = handler.send_response(response);
-                        });
-                    }
-                }
+                Some(SignalSource::VsockListen) => vsock_dispatcher.handle_events(&stats),
                 None => {} // unknown tag; ignore
             }
         }

@@ -1,7 +1,10 @@
 use prost::Message;
 use std::io::{Read, Write};
+use std::sync::Arc;
 use vsock::{VsockAddr, VsockListener, VsockStream};
 
+use crate::stats::Stats;
+use crate::transport::dispatch;
 use crate::transport::wire;
 
 // VMADDR_CID_ANY = 0xFFFFFFFF (u32::MAX) — accept from any CID
@@ -35,6 +38,24 @@ impl VsockDispatcher {
         }
         connections
     }
+
+    /// Accepts every pending connection and handles each on its own thread.
+    pub fn handle_events(&mut self, stats: &Arc<Stats>) {
+        for (stream, addr) in self.accept_connections() {
+            let stats = stats.clone();
+            std::thread::spawn(move || {
+                let _ = handle_connection(stream, addr, &stats);
+            });
+        }
+    }
+}
+
+fn handle_connection(stream: VsockStream, addr: VsockAddr, stats: &Stats) -> anyhow::Result<()> {
+    let mut handler = VsockConnectionHandler::new(stream, addr);
+    let prefix = handler.read_length_prefix()?;
+    let payload = handler.extract_payload(prefix)?;
+    let response = dispatch::dispatch(payload, stats)?;
+    handler.send_response(response)
 }
 
 pub struct VsockConnectionHandler {
