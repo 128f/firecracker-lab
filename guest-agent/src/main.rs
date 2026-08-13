@@ -16,7 +16,7 @@ const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 use boot::mount::{MountConfig, mount_system_paths};
 use boot::signals::{SignalSource, connect_signalfd, drain_signals};
 use scheduler::epoll::{PollConfig, Poller};
-use scheduler::timerfd::{connect_timerfd, drain_timerfd};
+use scheduler::timerfd::TimerDispatcher;
 use session::pty::{PtySession, setup_pty};
 use session::terminal::RawTerminal;
 use stats::{Stats, Status};
@@ -30,7 +30,11 @@ fn main() {
 
     let mut vsock_dispatcher = VsockDispatcher::new().unwrap();
     let stats = Arc::new(Stats::new());
-    let timer_fd = connect_timerfd(SAMPLE_INTERVAL).unwrap();
+    let mut timer_dispatcher = TimerDispatcher::new(SAMPLE_INTERVAL).unwrap();
+    timer_dispatcher.register({
+        let stats = stats.clone();
+        move || stats.sample()
+    });
 
     let mut epoller = Poller::new();
     epoller
@@ -43,7 +47,7 @@ fn main() {
                     SignalSource::VsockListen,
                     vsock_dispatcher.vsock_listener.as_fd(),
                 )
-                .with(SignalSource::Timer, timer_fd.as_fd()),
+                .with(SignalSource::Timer, timer_dispatcher.fd()),
         )
         .unwrap();
 
@@ -60,10 +64,7 @@ fn main() {
                 Some(SignalSource::Signal) => drain_signals(sfd.as_fd()),
                 Some(SignalSource::Stdin) => pty_session.handle_stdin(),
                 Some(SignalSource::Pty) => pty_session.handle_pty(),
-                Some(SignalSource::Timer) => {
-                    drain_timerfd(timer_fd.as_fd());
-                    stats.sample();
-                }
+                Some(SignalSource::Timer) => timer_dispatcher.tick(),
                 Some(SignalSource::VsockListen) => vsock_dispatcher.handle_events(&stats),
                 None => {} // unknown tag; ignore
             }
