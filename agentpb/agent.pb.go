@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.34.1
-// source: agent.proto
+// source: guest-agent/proto/agent.proto
 
 package agentpb
 
@@ -51,11 +51,11 @@ func (x HealthStatus) String() string {
 }
 
 func (HealthStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[0].Descriptor()
+	return file_guest_agent_proto_agent_proto_enumTypes[0].Descriptor()
 }
 
 func (HealthStatus) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[0]
+	return &file_guest_agent_proto_agent_proto_enumTypes[0]
 }
 
 func (x HealthStatus) Number() protoreflect.EnumNumber {
@@ -64,7 +64,7 @@ func (x HealthStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use HealthStatus.Descriptor instead.
 func (HealthStatus) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{0}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{0}
 }
 
 type Request struct {
@@ -72,6 +72,7 @@ type Request struct {
 	// Types that are valid to be assigned to RequestType:
 	//
 	//	*Request_Status
+	//	*Request_VmRestore
 	RequestType   isRequest_RequestType `protobuf_oneof:"request_type"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -79,7 +80,7 @@ type Request struct {
 
 func (x *Request) Reset() {
 	*x = Request{}
-	mi := &file_agent_proto_msgTypes[0]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -91,7 +92,7 @@ func (x *Request) String() string {
 func (*Request) ProtoMessage() {}
 
 func (x *Request) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[0]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -104,7 +105,7 @@ func (x *Request) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Request.ProtoReflect.Descriptor instead.
 func (*Request) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{0}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Request) GetRequestType() isRequest_RequestType {
@@ -123,6 +124,15 @@ func (x *Request) GetStatus() *StatusRequest {
 	return nil
 }
 
+func (x *Request) GetVmRestore() *VmRestoreNotification {
+	if x != nil {
+		if x, ok := x.RequestType.(*Request_VmRestore); ok {
+			return x.VmRestore
+		}
+	}
+	return nil
+}
+
 type isRequest_RequestType interface {
 	isRequest_RequestType()
 }
@@ -131,7 +141,13 @@ type Request_Status struct {
 	Status *StatusRequest `protobuf:"bytes,1,opt,name=status,proto3,oneof"`
 }
 
+type Request_VmRestore struct {
+	VmRestore *VmRestoreNotification `protobuf:"bytes,2,opt,name=vm_restore,json=vmRestore,proto3,oneof"`
+}
+
 func (*Request_Status) isRequest_RequestType() {}
+
+func (*Request_VmRestore) isRequest_RequestType() {}
 
 type StatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -141,7 +157,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_agent_proto_msgTypes[1]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -153,7 +169,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[1]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -166,19 +182,140 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{1}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{1}
 }
 
-type StatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        HealthStatus           `protobuf:"varint,1,opt,name=status,proto3,enum=agent.HealthStatus" json:"status,omitempty"`
+type Response struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to ResponseType:
+	//
+	//	*Response_Status
+	//	*Response_Ack
+	ResponseType  isResponse_ResponseType `protobuf_oneof:"response_type"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *Response) Reset() {
+	*x = Response{}
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Response) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Response) ProtoMessage() {}
+
+func (x *Response) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Response.ProtoReflect.Descriptor instead.
+func (*Response) Descriptor() ([]byte, []int) {
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Response) GetResponseType() isResponse_ResponseType {
+	if x != nil {
+		return x.ResponseType
+	}
+	return nil
+}
+
+func (x *Response) GetStatus() *StatusResponse {
+	if x != nil {
+		if x, ok := x.ResponseType.(*Response_Status); ok {
+			return x.Status
+		}
+	}
+	return nil
+}
+
+func (x *Response) GetAck() *Ack {
+	if x != nil {
+		if x, ok := x.ResponseType.(*Response_Ack); ok {
+			return x.Ack
+		}
+	}
+	return nil
+}
+
+type isResponse_ResponseType interface {
+	isResponse_ResponseType()
+}
+
+type Response_Status struct {
+	Status *StatusResponse `protobuf:"bytes,1,opt,name=status,proto3,oneof"`
+}
+
+type Response_Ack struct {
+	Ack *Ack `protobuf:"bytes,2,opt,name=ack,proto3,oneof"`
+}
+
+func (*Response_Status) isResponse_ResponseType() {}
+
+func (*Response_Ack) isResponse_ResponseType() {}
+
+type Ack struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Ack) Reset() {
+	*x = Ack{}
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Ack) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Ack) ProtoMessage() {}
+
+func (x *Ack) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Ack.ProtoReflect.Descriptor instead.
+func (*Ack) Descriptor() ([]byte, []int) {
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{3}
+}
+
+type StatusResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Status            HealthStatus           `protobuf:"varint,1,opt,name=status,proto3,enum=agent.HealthStatus" json:"status,omitempty"`
+	CpuPct            uint32                 `protobuf:"varint,2,opt,name=cpu_pct,json=cpuPct,proto3" json:"cpu_pct,omitempty"`
+	MemAvailableBytes uint64                 `protobuf:"varint,3,opt,name=mem_available_bytes,json=memAvailableBytes,proto3" json:"mem_available_bytes,omitempty"`
+	LastBeat          uint64                 `protobuf:"varint,4,opt,name=last_beat,json=lastBeat,proto3" json:"last_beat,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -190,7 +327,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -203,7 +340,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{2}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StatusResponse) GetStatus() HealthStatus {
@@ -213,75 +350,165 @@ func (x *StatusResponse) GetStatus() HealthStatus {
 	return HealthStatus_HEALTHY
 }
 
-var File_agent_proto protoreflect.FileDescriptor
+func (x *StatusResponse) GetCpuPct() uint32 {
+	if x != nil {
+		return x.CpuPct
+	}
+	return 0
+}
 
-const file_agent_proto_rawDesc = "" +
+func (x *StatusResponse) GetMemAvailableBytes() uint64 {
+	if x != nil {
+		return x.MemAvailableBytes
+	}
+	return 0
+}
+
+func (x *StatusResponse) GetLastBeat() uint64 {
+	if x != nil {
+		return x.LastBeat
+	}
+	return 0
+}
+
+type VmRestoreNotification struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RestoredAt    uint64                 `protobuf:"varint,1,opt,name=restored_at,json=restoredAt,proto3" json:"restored_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VmRestoreNotification) Reset() {
+	*x = VmRestoreNotification{}
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VmRestoreNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VmRestoreNotification) ProtoMessage() {}
+
+func (x *VmRestoreNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VmRestoreNotification.ProtoReflect.Descriptor instead.
+func (*VmRestoreNotification) Descriptor() ([]byte, []int) {
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *VmRestoreNotification) GetRestoredAt() uint64 {
+	if x != nil {
+		return x.RestoredAt
+	}
+	return 0
+}
+
+var File_guest_agent_proto_agent_proto protoreflect.FileDescriptor
+
+const file_guest_agent_proto_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\x05agent\"I\n" +
+	"\x1dguest-agent/proto/agent.proto\x12\x05agent\"\x88\x01\n" +
 	"\aRequest\x12.\n" +
-	"\x06status\x18\x01 \x01(\v2\x14.agent.StatusRequestH\x00R\x06statusB\x0e\n" +
+	"\x06status\x18\x01 \x01(\v2\x14.agent.StatusRequestH\x00R\x06status\x12=\n" +
+	"\n" +
+	"vm_restore\x18\x02 \x01(\v2\x1c.agent.VmRestoreNotificationH\x00R\tvmRestoreB\x0e\n" +
 	"\frequest_type\"\x0f\n" +
-	"\rStatusRequest\"=\n" +
+	"\rStatusRequest\"l\n" +
+	"\bResponse\x12/\n" +
+	"\x06status\x18\x01 \x01(\v2\x15.agent.StatusResponseH\x00R\x06status\x12\x1e\n" +
+	"\x03ack\x18\x02 \x01(\v2\n" +
+	".agent.AckH\x00R\x03ackB\x0f\n" +
+	"\rresponse_type\"\x05\n" +
+	"\x03Ack\"\xa3\x01\n" +
 	"\x0eStatusResponse\x12+\n" +
-	"\x06status\x18\x01 \x01(\x0e2\x13.agent.HealthStatusR\x06status*)\n" +
+	"\x06status\x18\x01 \x01(\x0e2\x13.agent.HealthStatusR\x06status\x12\x17\n" +
+	"\acpu_pct\x18\x02 \x01(\rR\x06cpuPct\x12.\n" +
+	"\x13mem_available_bytes\x18\x03 \x01(\x04R\x11memAvailableBytes\x12\x1b\n" +
+	"\tlast_beat\x18\x04 \x01(\x04R\blastBeat\"8\n" +
+	"\x15VmRestoreNotification\x12\x1f\n" +
+	"\vrestored_at\x18\x01 \x01(\x04R\n" +
+	"restoredAt*)\n" +
 	"\fHealthStatus\x12\v\n" +
 	"\aHEALTHY\x10\x00\x12\f\n" +
 	"\bDEGRADED\x10\x01B\x1eZ\x1cgithub.com/128f/fctl/agentpbb\x06proto3"
 
 var (
-	file_agent_proto_rawDescOnce sync.Once
-	file_agent_proto_rawDescData []byte
+	file_guest_agent_proto_agent_proto_rawDescOnce sync.Once
+	file_guest_agent_proto_agent_proto_rawDescData []byte
 )
 
-func file_agent_proto_rawDescGZIP() []byte {
-	file_agent_proto_rawDescOnce.Do(func() {
-		file_agent_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)))
+func file_guest_agent_proto_agent_proto_rawDescGZIP() []byte {
+	file_guest_agent_proto_agent_proto_rawDescOnce.Do(func() {
+		file_guest_agent_proto_agent_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_guest_agent_proto_agent_proto_rawDesc), len(file_guest_agent_proto_agent_proto_rawDesc)))
 	})
-	return file_agent_proto_rawDescData
+	return file_guest_agent_proto_agent_proto_rawDescData
 }
 
-var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_agent_proto_goTypes = []any{
-	(HealthStatus)(0),      // 0: agent.HealthStatus
-	(*Request)(nil),        // 1: agent.Request
-	(*StatusRequest)(nil),  // 2: agent.StatusRequest
-	(*StatusResponse)(nil), // 3: agent.StatusResponse
+var file_guest_agent_proto_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_guest_agent_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_guest_agent_proto_agent_proto_goTypes = []any{
+	(HealthStatus)(0),             // 0: agent.HealthStatus
+	(*Request)(nil),               // 1: agent.Request
+	(*StatusRequest)(nil),         // 2: agent.StatusRequest
+	(*Response)(nil),              // 3: agent.Response
+	(*Ack)(nil),                   // 4: agent.Ack
+	(*StatusResponse)(nil),        // 5: agent.StatusResponse
+	(*VmRestoreNotification)(nil), // 6: agent.VmRestoreNotification
 }
-var file_agent_proto_depIdxs = []int32{
+var file_guest_agent_proto_agent_proto_depIdxs = []int32{
 	2, // 0: agent.Request.status:type_name -> agent.StatusRequest
-	0, // 1: agent.StatusResponse.status:type_name -> agent.HealthStatus
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	6, // 1: agent.Request.vm_restore:type_name -> agent.VmRestoreNotification
+	5, // 2: agent.Response.status:type_name -> agent.StatusResponse
+	4, // 3: agent.Response.ack:type_name -> agent.Ack
+	0, // 4: agent.StatusResponse.status:type_name -> agent.HealthStatus
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
-func init() { file_agent_proto_init() }
-func file_agent_proto_init() {
-	if File_agent_proto != nil {
+func init() { file_guest_agent_proto_agent_proto_init() }
+func file_guest_agent_proto_agent_proto_init() {
+	if File_guest_agent_proto_agent_proto != nil {
 		return
 	}
-	file_agent_proto_msgTypes[0].OneofWrappers = []any{
+	file_guest_agent_proto_agent_proto_msgTypes[0].OneofWrappers = []any{
 		(*Request_Status)(nil),
+		(*Request_VmRestore)(nil),
+	}
+	file_guest_agent_proto_agent_proto_msgTypes[2].OneofWrappers = []any{
+		(*Response_Status)(nil),
+		(*Response_Ack)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_guest_agent_proto_agent_proto_rawDesc), len(file_guest_agent_proto_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_agent_proto_goTypes,
-		DependencyIndexes: file_agent_proto_depIdxs,
-		EnumInfos:         file_agent_proto_enumTypes,
-		MessageInfos:      file_agent_proto_msgTypes,
+		GoTypes:           file_guest_agent_proto_agent_proto_goTypes,
+		DependencyIndexes: file_guest_agent_proto_agent_proto_depIdxs,
+		EnumInfos:         file_guest_agent_proto_agent_proto_enumTypes,
+		MessageInfos:      file_guest_agent_proto_agent_proto_msgTypes,
 	}.Build()
-	File_agent_proto = out.File
-	file_agent_proto_goTypes = nil
-	file_agent_proto_depIdxs = nil
+	File_guest_agent_proto_agent_proto = out.File
+	file_guest_agent_proto_agent_proto_goTypes = nil
+	file_guest_agent_proto_agent_proto_depIdxs = nil
 }

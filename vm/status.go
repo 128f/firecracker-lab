@@ -39,6 +39,35 @@ func (r *Runner) Status(id string) (agentpb.HealthStatus, error) {
 	return resp.GetStatus(), nil
 }
 
+// NotifyRestore tells the guest agent that this VM was just resumed from a
+// snapshot, passing the current wall-clock time so it can reset the guest's
+// system clock (which is frozen at snapshot time until told otherwise).
+func (r *Runner) NotifyRestore(id string) error {
+	conn, err := r.DialVsock(id, guestAgentPort)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+
+	req := &agentpb.Request{
+		RequestType: &agentpb.Request_VmRestore{
+			VmRestore: &agentpb.VmRestoreNotification{
+				RestoredAt: uint64(time.Now().Unix()),
+			},
+		},
+	}
+	if err := writeFramed(conn, req); err != nil {
+		return fmt.Errorf("send restore notification: %w", err)
+	}
+
+	resp := &agentpb.Response{}
+	if err := readFramed(conn, resp); err != nil {
+		return fmt.Errorf("read restore ack: %w", err)
+	}
+	return nil
+}
+
 // writeFramed encodes m as a 4-byte big-endian length prefix followed by
 // its protobuf bytes, matching the guest agent's framing.
 func writeFramed(w io.Writer, m proto.Message) error {

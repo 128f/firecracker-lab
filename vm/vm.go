@@ -420,6 +420,10 @@ func (r *Runner) Restore(vm *state.VM, snapshotDir string, attach bool) error {
 		return err
 	}
 
+	if err := r.NotifyRestore(vm.ID); err != nil {
+		r.log().Warn("failed to notify guest agent of restore", "vm", vm.ID, "error", err)
+	}
+
 	return r.waitOrBackground(vm.ID, cmd, attach)
 }
 
