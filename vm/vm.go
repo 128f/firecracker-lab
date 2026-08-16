@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/128f/fctl/state"
 )
 
@@ -133,6 +135,11 @@ func (r *Runner) waitOrBackground(id string, cmd *exec.Cmd, attach bool) error {
 
 	// Foreground: wait for jailer to exit or Ctrl+C.
 	r.log().Info("VM running in foreground, press Ctrl+C to stop", "vm", id)
+
+	if oldState, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
+		defer term.Restore(int(os.Stdin.Fd()), oldState)
+	}
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
