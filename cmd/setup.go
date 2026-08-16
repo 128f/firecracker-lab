@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -52,14 +53,17 @@ func runSetup(cfg *Config) error {
 		fmt.Printf("detected WAN interface: %s\n", wan)
 	}
 
+	lanCIDR, err := interfaceCIDR(wan)
+	if err != nil {
+		return fmt.Errorf("could not detect LAN CIDR on %s: %w", wan, err)
+	}
+	fmt.Printf("detected LAN CIDR on %s: %s\n", wan, lanCIDR)
+
 	steps := [][]string{
 		{"ip", "link", "add", "br0", "type", "bridge"},
 		{"ip", "addr", "add", "172.16.0.1/24", "dev", "br0"},
 		{"ip", "link", "set", "br0", "up"},
 		{"sysctl", "-w", "net.ipv4.ip_forward=1"},
-		{"iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "172.16.0.0/24", "-o", wan, "-j", "MASQUERADE"},
-		{"iptables", "-A", "FORWARD", "-i", "br0", "-o", wan, "-j", "ACCEPT"},
-		{"iptables", "-A", "FORWARD", "-i", wan, "-o", "br0", "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
 		{"mkdir", "-p", "/srv/jailer/firecracker"},
 		{"mkdir", "-p", "/sys/fs/cgroup/fctl"},
 		{"groupadd", "--system", "-g", gid, "fctl-vm"},
@@ -74,6 +78,65 @@ func runSetup(cfg *Config) error {
 			fmt.Fprintf(os.Stderr, "  warn: %s\n", out)
 		}
 	}
+
+	if err := applyNftRuleset(wan, lanCIDR); err != nil {
+		fmt.Fprintf(os.Stderr, "  warn: nft ruleset: %s\n", err)
+	}
+
 	fmt.Println("setup done")
 	return nil
+}
+
+// applyNftRuleset loads the VM networking policy as a single atomic nftables
+// transaction: VMs on br0 may reach the internet and each other, but not the
+// host's LAN (lanCIDR), and not the host itself.
+func applyNftRuleset(wan, lanCIDR string) error {
+	ruleset := fmt.Sprintf(`
+table inet fctl {
+	chain forward {
+		type filter hook forward priority 0; policy drop;
+		iifname "br0" ip daddr %[2]s drop
+		iifname "br0" oifname "%[1]s" accept
+		iifname "%[1]s" oifname "br0" ct state established,related accept
+	}
+	chain input {
+		type filter hook input priority 0; policy accept;
+		iifname "br0" ct state established,related accept
+		iifname "br0" drop
+	}
+	chain postrouting {
+		type nat hook postrouting priority 100;
+		ip saddr 172.16.0.0/24 ip daddr != %[2]s oifname "%[1]s" masquerade
+	}
+}
+`, wan, lanCIDR)
+
+	fmt.Println("+ nft -f - <<ruleset>>")
+	fmt.Print(ruleset)
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(ruleset)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	return nil
+}
+
+// interfaceCIDR returns the CIDR of the first IPv4 address on iface, e.g. "192.168.8.0/24".
+func interfaceCIDR(iface string) (string, error) {
+	out, err := exec.Command("ip", "-o", "-4", "addr", "show", "dev", iface).Output()
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(string(out))
+	for i, f := range fields {
+		if f == "inet" && i+1 < len(fields) {
+			_, ipNet, err := net.ParseCIDR(fields[i+1])
+			if err != nil {
+				return "", err
+			}
+			return ipNet.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no inet address found on %s", iface)
 }
