@@ -24,20 +24,18 @@ const WNOHANG: usize = 1; // return immediately if none ready
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SignalSource {
     Signal = 1,
-    Stdin = 2,
-    Pty = 3,
-    VsockListen = 4,
-    Timer = 5,
+    VsockListen = 2,
+    PtyVsockListen = 3,
+    Timer = 4,
 }
 
 impl SignalSource {
     pub fn from_u64(v: u64) -> Option<Self> {
         match v {
             1 => Some(SignalSource::Signal),
-            2 => Some(SignalSource::Stdin),
-            3 => Some(SignalSource::Pty),
-            4 => Some(SignalSource::VsockListen),
-            5 => Some(SignalSource::Timer),
+            2 => Some(SignalSource::VsockListen),
+            3 => Some(SignalSource::PtyVsockListen),
+            4 => Some(SignalSource::Timer),
             _ => None,
         }
     }
