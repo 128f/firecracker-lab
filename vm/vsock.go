@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 // vsockConn is a net.Conn that reads through a bufio.Reader, so bytes
@@ -46,4 +47,25 @@ func (r *Runner) DialVsock(id string, port uint32) (net.Conn, error) {
 	}
 
 	return &vsockConn{Conn: conn, r: br}, nil
+}
+
+// DialVsockRetry retries DialVsock until it succeeds or timeout elapses.
+// Right after boot the guest kernel and guest-agent need a moment to come
+// up, so the CONNECT handshake for a given guest port can fail (connection
+// refused / rejected) for a short window even though the host-side vsock
+// UDS already exists.
+func (r *Runner) DialVsockRetry(id string, port uint32, timeout time.Duration) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		conn, err := r.DialVsock(id, port)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timeout waiting for vsock port %d: %w", port, lastErr)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

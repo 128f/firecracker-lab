@@ -11,9 +11,14 @@ import (
 )
 
 // guestAgentPort is the vsock port the guest agent listens on for the
-// status/control protocol (agent.proto), distinct from the interactive
-// shell port used by DialVsock in cmd vsock.
+// framed status/control protocol (agent.proto).
 const guestAgentPort = 1234
+
+// guestPtyPort is the vsock port the guest agent listens on for interactive
+// PTY sessions: no framing, raw bytes straight to/from a freshly spawned
+// process's pty. Each connection gets its own process; closing the
+// connection hangs up (and reaps) the child.
+const guestPtyPort = 1235
 
 // Status queries the guest agent's health over vsock. It returns an error
 // if the VM isn't reachable (not running, agent not up yet, etc.).

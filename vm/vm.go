@@ -78,16 +78,18 @@ func (r *Runner) SocketPath(id string) string {
 	return filepath.Join(r.vmDir(id), "root", "run", "firecracker.socket")
 }
 
-func (r *Runner) ConsolePath(id string) string {
-	return filepath.Join(r.vmDir(id), "root", "run", "console.sock")
-}
-
 func (r *Runner) VsockPath(id string) string {
 	return filepath.Join(r.vmDir(id), "root", "run", "vsock.sock")
 }
 
 func (r *Runner) pidPath(id string) string {
 	return filepath.Join(r.vmDir(id), "fctl.pid")
+}
+
+// BootLogPath returns the path to the file the VM's serial console
+// (ttyS0) boot output is dumped to.
+func (r *Runner) BootLogPath(id string) string {
+	return filepath.Join(r.vmDir(id), "console.log")
 }
 
 func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
@@ -126,7 +128,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 
 // waitOrBackground implements the attach/foreground-vs-detached-background
 // split: if attach is false, it logs and returns immediately, leaving the
-// VM running in the background. If true, it attaches to the VM's console
+// VM running in the background. If true, it attaches to the VM's shell
 // (like the `console` command) and blocks until the jailer process exits,
 // the user detaches with ctrl+], or a SIGINT/SIGTERM arrives — the first
 // two leave the VM running, the signal kills it.
@@ -154,15 +156,15 @@ func (r *Runner) waitOrBackground(id string, cmd *exec.Cmd, attach bool) error {
 		r.log().Info("signal received, killing VM", "vm", id)
 		cmd.Process.Kill()
 		// Wait for the console session to unwind (killing the process
-		// closes its stdio, which unblocks AttachConsole) so its deferred
-		// terminal restore runs before we return.
+		// tears down the vsock backend, which unblocks AttachConsole) so
+		// its deferred terminal restore runs before we return.
 		<-consoleDone
 		return nil
 	case err := <-consoleDone:
 		if err != nil {
 			return err
 		}
-		// The console connection also closes when the VM exits on its own
+		// The shell connection also closes when the VM exits on its own
 		// (io.Copy hits EOF); prefer that outcome over "detached" if it's
 		// available.
 		select {
@@ -277,18 +279,19 @@ func (j *execJailerLauncher) Launch(vm *state.VM) (*exec.Cmd, error) {
 	cmd := exec.Command(r.JailerBin, args...)
 	cmd.Stderr = os.Stderr
 
-	stdin, err := cmd.StdinPipe()
+	// The guest's serial console (ttyS0, kernel boot output only — the
+	// guest agent no longer forwards a shell to it) is just dumped to a
+	// log file; nothing needs to read or write it interactively anymore.
+	logFile, err := os.OpenFile(r.BootLogPath(vm.ID), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		return nil, fmt.Errorf("stdin pipe: %w", err)
+		return nil, fmt.Errorf("open console log: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("stdout pipe: %w", err)
-	}
+	defer logFile.Close()
+	cmd.Stdout = logFile
+
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("jailer start: %w", err)
 	}
-	go r.consoleListener(vm.ID, stdin, stdout)
 
 	return cmd, nil
 }
@@ -485,20 +488,17 @@ func (r *Runner) IsAlive(id string) bool {
 	return err == nil
 }
 
-// AttachConsole connects to the VM's console socket and attaches a session
-// to it. It returns when the connection closes (VM exited) or the user
-// detaches — either way the VM keeps running; detaching just disconnects
-// this session from its console.
+// AttachConsole connects to the guest agent's interactive PTY vsock port
+// and attaches a session to it, spawning a fresh shell process inside the
+// guest. It returns when the connection closes (VM exited or the guest
+// process exited) or the user detaches — either way the VM keeps running;
+// detaching just disconnects this session and hangs up its shell process.
 func (r *Runner) AttachConsole(id string) error {
-	sock := r.ConsolePath(id)
-	if err := waitForSocket(sock, 5*time.Second); err != nil {
-		return fmt.Errorf("console socket never appeared at %s: %w", sock, err)
-	}
-	conn, err := net.Dial("unix", sock)
+	conn, err := r.DialVsockRetry(id, guestPtyPort, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("connect to console: %w", err)
+		return fmt.Errorf("connect to guest shell: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "connected to %s console (ctrl+] to detach)\r\n", id)
+	fmt.Fprintf(os.Stderr, "connected to %s shell (ctrl+] to detach)\r\n", id)
 	return AttachSession(conn)
 }
 
@@ -557,74 +557,6 @@ func (c *ctrlBracketReader) Read(p []byte) (int, error) {
 		}
 	}
 	return n, err
-}
-
-func (r *Runner) consoleListener(id string, stdin io.WriteCloser, stdout io.ReadCloser) {
-	path := r.ConsolePath(id)
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		r.log().Error("console listener", "vm", id, "err", err)
-		return
-	}
-	defer ln.Close()
-
-	// current holds the console session currently attached, if any. It's
-	// swapped out by the accept loop below (never blocking on VM output)
-	// and drained by the dedicated stdout-forwarding goroutine, so a
-	// detach (client closes its conn) can never wedge reattachment behind
-	// a quiet VM console.
-	var mu sync.Mutex
-	var current net.Conn
-
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := stdout.Read(buf)
-			if n > 0 {
-				mu.Lock()
-				c := current
-				mu.Unlock()
-				if c != nil {
-					if _, werr := c.Write(buf[:n]); werr != nil {
-						mu.Lock()
-						if current == c {
-							current = nil
-						}
-						mu.Unlock()
-						c.Close()
-					}
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-
-		mu.Lock()
-		prev := current
-		current = conn
-		mu.Unlock()
-		if prev != nil {
-			prev.Close()
-		}
-
-		go func(c net.Conn) {
-			io.Copy(stdin, c)
-			mu.Lock()
-			if current == c {
-				current = nil
-			}
-			mu.Unlock()
-			c.Close()
-		}(conn)
-	}
 }
 
 func (r *Runner) bootVM(vm *state.VM, sock string) error {

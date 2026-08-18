@@ -11,7 +11,7 @@ import (
 func newConsoleCmd(cfg *Config) *cobra.Command {
 	return &cobra.Command{
 		Use:   "console <id>",
-		Short: "Attach to VM serial console",
+		Short: "Attach an interactive shell to a VM (over the guest agent's PTY vsock port)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
