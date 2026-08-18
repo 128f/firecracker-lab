@@ -248,6 +248,19 @@ func (s *State) scanImage(row *sql.Row) (*Image, error) {
 	return img, nil
 }
 
+// DeleteImage removes the image with the given id.
+func (s *State) DeleteImage(id string) error {
+	_, err := s.db.Exec(`DELETE FROM images WHERE id = ?`, id)
+	return err
+}
+
+// CountVMsUsingImage returns how many VMs reference the given image id.
+func (s *State) CountVMsUsingImage(imageID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM vms WHERE image_id = ?`, imageID).Scan(&n)
+	return n, err
+}
+
 // ListImages returns all registered images.
 func (s *State) ListImages() ([]*Image, error) {
 	rows, err := s.db.Query(`SELECT id, name, path, size_bytes FROM images`)
@@ -295,6 +308,12 @@ func (s *State) scanSnapshot(row *sql.Row) (*Snapshot, error) {
 		return nil, err
 	}
 	return snap, nil
+}
+
+// DeleteSnapshot removes the snapshot with the given id.
+func (s *State) DeleteSnapshot(id string) error {
+	_, err := s.db.Exec(`DELETE FROM snapshots WHERE id = ?`, id)
+	return err
 }
 
 // ListSnapshots returns all saved snapshots.

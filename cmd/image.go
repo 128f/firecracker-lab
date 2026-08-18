@@ -19,6 +19,7 @@ func newImageCmd(cfg *Config) *cobra.Command {
 	cmd.AddCommand(newImageImportCmd(cfg))
 	cmd.AddCommand(newImageBuildCmd(cfg))
 	cmd.AddCommand(newImageListCmd(cfg))
+	cmd.AddCommand(newImageDeleteCmd(cfg))
 	return cmd
 }
 
@@ -101,6 +102,48 @@ func newImageListCmd(cfg *Config) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newImageDeleteCmd(cfg *Config) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Remove a registered image and delete its file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			s, err := state.Load(state.DBPath(cfg.DataDir))
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+
+			img, err := s.GetImageByName(name)
+			if err != nil {
+				return err
+			}
+			if img == nil {
+				return fmt.Errorf("unknown image: %s (see `fctl image list`)", name)
+			}
+
+			inUse, err := s.CountVMsUsingImage(img.ID)
+			if err != nil {
+				return err
+			}
+			if inUse > 0 && !force {
+				return fmt.Errorf("image %q is referenced by %d VM(s); pass --force to remove anyway", name, inUse)
+			}
+
+			if err := s.DeleteImage(img.ID); err != nil {
+				return err
+			}
+			fmt.Printf("removed image %s (file left at %s)\n", name, img.Path)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "remove even if VMs still reference this image")
+	return cmd
 }
 
 func copyFile(src, dst string) (int64, error) {

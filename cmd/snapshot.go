@@ -58,7 +58,39 @@ func newSnapshotCmd(cfg *Config) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name to save the snapshot under (required)")
 	cmd.AddCommand(newSnapshotListCmd(cfg))
+	cmd.AddCommand(newSnapshotDeleteCmd(cfg))
 	return cmd
+}
+
+func newSnapshotDeleteCmd(cfg *Config) *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Remove a saved snapshot's registration",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			s, err := state.Load(state.DBPath(cfg.DataDir))
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+
+			snap, err := s.GetSnapshotByName(name)
+			if err != nil {
+				return err
+			}
+			if snap == nil {
+				return fmt.Errorf("unknown snapshot: %s (see `fctl snapshot list`)", name)
+			}
+
+			if err := s.DeleteSnapshot(snap.ID); err != nil {
+				return err
+			}
+			fmt.Printf("removed snapshot %s (dir left at %s)\n", name, snap.Dir)
+			return nil
+		},
+	}
 }
 
 func newSnapshotListCmd(cfg *Config) *cobra.Command {
