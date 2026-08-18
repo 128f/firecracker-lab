@@ -2,15 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"os/signal"
-	"sync"
 
 	"github.com/128f/fctl/state"
 	"github.com/128f/fctl/vm"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 const defaultVsockPort = 1234
@@ -42,37 +38,8 @@ func newVsockCmd(cfg *Config) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
 			fmt.Fprintf(os.Stderr, "connected to %s vsock port %d (ctrl+] to detach)\r\n", id, port)
-
-			fd := int(os.Stdin.Fd())
-			oldState, err := term.MakeRaw(fd)
-			if err != nil {
-				return fmt.Errorf("raw mode: %w", err)
-			}
-			defer term.Restore(fd, oldState)
-
-			done := make(chan struct{})
-			sig := make(chan os.Signal, 1)
-			signal.Notify(sig, os.Interrupt)
-
-			var once sync.Once
-			closeDone := func() { once.Do(func() { close(done) }) }
-
-			go func() {
-				io.Copy(conn, &ctrlBracketReader{r: os.Stdin, done: done})
-				closeDone()
-			}()
-			go func() {
-				io.Copy(os.Stdout, conn)
-				closeDone()
-			}()
-
-			select {
-			case <-done:
-			case <-sig:
-			}
-			return nil
+			return vm.AttachSession(conn)
 		},
 	}
 

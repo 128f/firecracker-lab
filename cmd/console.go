@@ -2,16 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"io"
-	"net"
-	"os"
-	"os/signal"
-	"sync"
 
 	"github.com/128f/fctl/state"
 	"github.com/128f/fctl/vm"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 func newConsoleCmd(cfg *Config) *cobra.Command {
@@ -35,67 +29,7 @@ func newConsoleCmd(cfg *Config) *cobra.Command {
 			}
 
 			r := &vm.Runner{DataDir: cfg.DataDir, FirecrackerBin: cfg.FCBin}
-			sock := r.ConsolePath(id)
-
-			conn, err := net.Dial("unix", sock)
-			if err != nil {
-				return fmt.Errorf("connect to console: %w", err)
-			}
-			defer conn.Close()
-
-			// Put terminal in raw mode so keystrokes go straight through
-			fd := int(os.Stdin.Fd())
-			oldState, err := term.MakeRaw(fd)
-			if err != nil {
-				return fmt.Errorf("raw mode: %w", err)
-			}
-			defer term.Restore(fd, oldState)
-
-			fmt.Fprintf(os.Stderr, "connected to %s console (ctrl+] to detach)\r\n", id)
-
-			// Trap ctrl+] (0x1d) to detach
-			done := make(chan struct{})
-			sig := make(chan os.Signal, 1)
-			signal.Notify(sig, os.Interrupt)
-
-			var once sync.Once
-			closeDone := func() { once.Do(func() { close(done) }) }
-
-			go func() {
-				io.Copy(conn, &ctrlBracketReader{r: os.Stdin, done: done})
-				closeDone()
-			}()
-			go func() {
-				io.Copy(os.Stdout, conn)
-				closeDone()
-			}()
-
-			select {
-			case <-done:
-			case <-sig:
-			}
-			return nil
+			return r.AttachConsole(id)
 		},
 	}
-}
-
-// ctrlBracketReader wraps stdin and closes done on ctrl+] (0x1d).
-type ctrlBracketReader struct {
-	r    io.Reader
-	done chan struct{}
-}
-
-func (c *ctrlBracketReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	for i := range n {
-		if p[i] == 0x1d {
-			select {
-			case <-c.done:
-			default:
-				close(c.done)
-			}
-			return i, io.EOF
-		}
-	}
-	return n, err
 }

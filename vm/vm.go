@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -45,7 +46,7 @@ type NetworkProvisioner interface {
 
 // JailerLauncher starts the jailer/firecracker process for a VM.
 type JailerLauncher interface {
-	Launch(vm *state.VM, attach bool) (*exec.Cmd, error)
+	Launch(vm *state.VM) (*exec.Cmd, error)
 }
 
 func (r *Runner) net() NetworkProvisioner {
@@ -97,7 +98,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 		return err
 	}
 
-	cmd, err := r.jailer().Launch(vm, attach)
+	cmd, err := r.jailer().Launch(vm)
 	if err != nil {
 		return err
 	}
@@ -125,34 +126,52 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 
 // waitOrBackground implements the attach/foreground-vs-detached-background
 // split: if attach is false, it logs and returns immediately, leaving the
-// VM running in the background; if true, it blocks until the jailer
-// process exits or a SIGINT/SIGTERM arrives, killing the process on signal.
+// VM running in the background. If true, it attaches to the VM's console
+// (like the `console` command) and blocks until the jailer process exits,
+// the user detaches with ctrl+], or a SIGINT/SIGTERM arrives — the first
+// two leave the VM running, the signal kills it.
 func (r *Runner) waitOrBackground(id string, cmd *exec.Cmd, attach bool) error {
 	if !attach {
 		r.log().Info("VM running in background", "vm", id)
 		return nil
 	}
 
-	// Foreground: wait for jailer to exit or Ctrl+C.
-	r.log().Info("VM running in foreground, press Ctrl+C to stop", "vm", id)
-
-	if oldState, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
-		defer term.Restore(int(os.Stdin.Fd()), oldState)
-	}
+	r.log().Info("VM running in foreground (ctrl+] to detach, ctrl+c to stop)", "vm", id)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	consoleDone := make(chan error, 1)
+	go func() { consoleDone <- r.AttachConsole(id) }()
 
 	select {
-	case err := <-done:
+	case err := <-exited:
 		return err
 	case <-sig:
 		r.log().Info("signal received, killing VM", "vm", id)
 		cmd.Process.Kill()
+		// Wait for the console session to unwind (killing the process
+		// closes its stdio, which unblocks AttachConsole) so its deferred
+		// terminal restore runs before we return.
+		<-consoleDone
 		return nil
+	case err := <-consoleDone:
+		if err != nil {
+			return err
+		}
+		// The console connection also closes when the VM exits on its own
+		// (io.Copy hits EOF); prefer that outcome over "detached" if it's
+		// available.
+		select {
+		case err := <-exited:
+			return err
+		default:
+			r.log().Info("detached, VM continues running in background", "vm", id)
+			return nil
+		}
 	}
 }
 
@@ -240,7 +259,7 @@ func (n *iproute2NetworkProvisioner) TeardownTap(vm *state.VM) error {
 // execJailerLauncher execs the real jailer/firecracker binaries.
 type execJailerLauncher struct{ r *Runner }
 
-func (j *execJailerLauncher) Launch(vm *state.VM, attach bool) (*exec.Cmd, error) {
+func (j *execJailerLauncher) Launch(vm *state.VM) (*exec.Cmd, error) {
 	r := j.r
 	args := []string{
 		"--id", vm.ID,
@@ -258,26 +277,18 @@ func (j *execJailerLauncher) Launch(vm *state.VM, attach bool) (*exec.Cmd, error
 	cmd := exec.Command(r.JailerBin, args...)
 	cmd.Stderr = os.Stderr
 
-	if !attach {
-		stdin, err := cmd.StdinPipe()
-		if err != nil {
-			return nil, fmt.Errorf("stdin pipe: %w", err)
-		}
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return nil, fmt.Errorf("stdout pipe: %w", err)
-		}
-		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("jailer start: %w", err)
-		}
-		go r.consoleListener(vm.ID, stdin, stdout)
-	} else {
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("jailer start: %w", err)
-		}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdin pipe: %w", err)
 	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("jailer start: %w", err)
+	}
+	go r.consoleListener(vm.ID, stdin, stdout)
 
 	return cmd, nil
 }
@@ -397,7 +408,7 @@ func (r *Runner) Restore(vm *state.VM, snapshotDir string, attach bool) error {
 		return err
 	}
 
-	cmd, err := r.jailer().Launch(vm, attach)
+	cmd, err := r.jailer().Launch(vm)
 	if err != nil {
 		return err
 	}
@@ -474,6 +485,80 @@ func (r *Runner) IsAlive(id string) bool {
 	return err == nil
 }
 
+// AttachConsole connects to the VM's console socket and attaches a session
+// to it. It returns when the connection closes (VM exited) or the user
+// detaches — either way the VM keeps running; detaching just disconnects
+// this session from its console.
+func (r *Runner) AttachConsole(id string) error {
+	sock := r.ConsolePath(id)
+	if err := waitForSocket(sock, 5*time.Second); err != nil {
+		return fmt.Errorf("console socket never appeared at %s: %w", sock, err)
+	}
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		return fmt.Errorf("connect to console: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "connected to %s console (ctrl+] to detach)\r\n", id)
+	return AttachSession(conn)
+}
+
+// AttachSession puts the terminal in raw mode and streams stdin/stdout to
+// conn until conn closes, the user presses ctrl+] to detach, or an
+// interrupt arrives — restoring the terminal before returning in every
+// case. Closing conn (if that's the right thing to do) is the caller's
+// responsibility.
+func AttachSession(conn io.ReadWriteCloser) error {
+	defer conn.Close()
+
+	fd := int(os.Stdin.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return fmt.Errorf("raw mode: %w", err)
+	}
+	defer term.Restore(fd, oldState)
+
+	done := make(chan struct{})
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	defer signal.Stop(sig)
+
+	var once sync.Once
+	closeDone := func() { once.Do(func() { close(done) }) }
+
+	go func() {
+		io.Copy(conn, &ctrlBracketReader{r: os.Stdin, detach: closeDone})
+		closeDone()
+	}()
+	go func() {
+		io.Copy(os.Stdout, conn)
+		closeDone()
+	}()
+
+	select {
+	case <-done:
+	case <-sig:
+	}
+	return nil
+}
+
+// ctrlBracketReader wraps r and calls detach when it sees ctrl+] (0x1d),
+// letting a console session detach without tearing anything down.
+type ctrlBracketReader struct {
+	r      io.Reader
+	detach func()
+}
+
+func (c *ctrlBracketReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	for i := range n {
+		if p[i] == 0x1d {
+			c.detach()
+			return i, io.EOF
+		}
+	}
+	return n, err
+}
+
 func (r *Runner) consoleListener(id string, stdin io.WriteCloser, stdout io.ReadCloser) {
 	path := r.ConsolePath(id)
 	ln, err := net.Listen("unix", path)
@@ -482,14 +567,63 @@ func (r *Runner) consoleListener(id string, stdin io.WriteCloser, stdout io.Read
 		return
 	}
 	defer ln.Close()
+
+	// current holds the console session currently attached, if any. It's
+	// swapped out by the accept loop below (never blocking on VM output)
+	// and drained by the dedicated stdout-forwarding goroutine, so a
+	// detach (client closes its conn) can never wedge reattachment behind
+	// a quiet VM console.
+	var mu sync.Mutex
+	var current net.Conn
+
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				c := current
+				mu.Unlock()
+				if c != nil {
+					if _, werr := c.Write(buf[:n]); werr != nil {
+						mu.Lock()
+						if current == c {
+							current = nil
+						}
+						mu.Unlock()
+						c.Close()
+					}
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		go io.Copy(stdin, conn)
-		io.Copy(conn, stdout)
-		conn.Close()
+
+		mu.Lock()
+		prev := current
+		current = conn
+		mu.Unlock()
+		if prev != nil {
+			prev.Close()
+		}
+
+		go func(c net.Conn) {
+			io.Copy(stdin, c)
+			mu.Lock()
+			if current == c {
+				current = nil
+			}
+			mu.Unlock()
+			c.Close()
+		}(conn)
 	}
 }
 

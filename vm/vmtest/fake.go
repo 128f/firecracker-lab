@@ -140,7 +140,7 @@ type FakeJailerLauncher struct {
 	cmd *exec.Cmd
 }
 
-func (f *FakeJailerLauncher) Launch(vm *state.VM, attach bool) (*exec.Cmd, error) {
+func (f *FakeJailerLauncher) Launch(vm *state.VM) (*exec.Cmd, error) {
 	if err := f.API.Start(); err != nil {
 		return nil, err
 	}
