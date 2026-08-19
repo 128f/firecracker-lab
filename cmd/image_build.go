@@ -15,6 +15,7 @@ func newImageBuildCmd(cfg *Config) *cobra.Command {
 		flagInitPath         string
 		flagOutput           string
 		flagSize             string
+		flagLocal            bool
 	)
 
 	cmd := &cobra.Command{
@@ -34,9 +35,14 @@ func newImageBuildCmd(cfg *Config) *cobra.Command {
 				Platform:         flagPlatform,
 				GuestAgentBinary: flagGuestAgentBinary,
 				InitPath:         flagInitPath,
+				Local:            flagLocal,
 			}
 
-			fmt.Printf("pulling %s (%s)...\n", ref, flagPlatform)
+			if flagLocal {
+				fmt.Printf("loading %s from local docker daemon...\n", ref)
+			} else {
+				fmt.Printf("pulling %s (%s)...\n", ref, flagPlatform)
+			}
 			result, err := b.Build(cmd.Context(), ref)
 			if err != nil {
 				return fmt.Errorf("build image: %w", err)
@@ -63,6 +69,7 @@ func newImageBuildCmd(cfg *Config) *cobra.Command {
 	cmd.Flags().StringVar(&flagInitPath, "init-path", envOr("FCTL_IMAGE_INIT_PATH", "/bin/guest-agent"), "path inside the rootfs to install the guest agent at (changing this requires also updating vm/vm.go's boot_args) (env: FCTL_IMAGE_INIT_PATH)")
 	cmd.Flags().StringVarP(&flagOutput, "output", "o", "", "output .ext4 file path (required)")
 	cmd.Flags().StringVar(&flagSize, "size", envOr("FCTL_IMAGE_SIZE", "2048M"), "size of the ext4 filesystem (passed to mkfs.ext4) (env: FCTL_IMAGE_SIZE)")
+	cmd.Flags().BoolVar(&flagLocal, "local", false, "load ref from the local docker daemon instead of pulling from a remote registry")
 
 	return cmd
 }

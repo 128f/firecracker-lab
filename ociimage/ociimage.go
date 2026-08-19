@@ -14,7 +14,9 @@ import (
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/daemon"
 )
 
 // imageConfigPath is where the pulled image's runtime config is written,
@@ -39,7 +41,10 @@ type Builder struct {
 	// InitPath is where inside the rootfs to install the guest agent.
 	// Defaults to "/bin/guest-agent", matching vm/vm.go's boot_args.
 	InitPath string
-	Logger   *slog.Logger
+	// Local sources ref from the local Docker daemon instead of pulling
+	// from a remote registry.
+	Local  bool
+	Logger *slog.Logger
 }
 
 func (b *Builder) log() *slog.Logger {
@@ -93,10 +98,23 @@ func (b *Builder) Build(ctx context.Context, ref string) (*BuildResult, error) {
 		return nil, err
 	}
 
-	b.log().Info("pulling image", "ref", ref, "platform", b.platform())
-	img, err := crane.Pull(ref, crane.WithPlatform(platform), crane.WithContext(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("pull %s: %w", ref, err)
+	var img v1.Image
+	if b.Local {
+		b.log().Info("loading image from local docker daemon", "ref", ref)
+		daemonRef, err := name.ParseReference(ref)
+		if err != nil {
+			return nil, fmt.Errorf("parse ref %s: %w", ref, err)
+		}
+		img, err = daemon.Image(daemonRef, daemon.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("load %s from local docker daemon: %w", ref, err)
+		}
+	} else {
+		b.log().Info("pulling image", "ref", ref, "platform", b.platform())
+		img, err = crane.Pull(ref, crane.WithPlatform(platform), crane.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("pull %s: %w", ref, err)
+		}
 	}
 
 	cfgFile, err := img.ConfigFile()
