@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/128f/fctl/ociimage"
 	"github.com/128f/fctl/state"
 	"github.com/spf13/cobra"
 )
@@ -20,6 +21,54 @@ func newImageCmd(cfg *Config) *cobra.Command {
 	cmd.AddCommand(newImageBuildCmd(cfg))
 	cmd.AddCommand(newImageListCmd(cfg))
 	cmd.AddCommand(newImageDeleteCmd(cfg))
+	cmd.AddCommand(newImageUpgradeCmd(cfg))
+	return cmd
+}
+
+func newImageUpgradeCmd(cfg *Config) *cobra.Command {
+	var (
+		flagGuestAgentBinary string
+		flagInitPath         string
+	)
+	cmd := &cobra.Command{
+		Use:   "upgrade <name>",
+		Short: "Inject a new guest-agent binary into a registered image in place",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			if flagGuestAgentBinary == "" {
+				return fmt.Errorf("--guest-agent-binary is required (see guest-agent/build.sh for how to build one)")
+			}
+
+			s, err := state.Load(state.DBPath(cfg.DataDir))
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+
+			img, err := s.GetImageByName(name)
+			if err != nil {
+				return err
+			}
+			if img == nil {
+				return fmt.Errorf("unknown image: %s (see `fctl image list`)", name)
+			}
+
+			fmt.Printf("injecting guest agent into %s (%s)...\n", img.Name, img.Path)
+			if err := ociimage.InjectGuestAgent(cmd.Context(), ociimage.InjectGuestAgentOptions{
+				ImagePath:        img.Path,
+				GuestAgentBinary: flagGuestAgentBinary,
+				InitPath:         flagInitPath,
+			}); err != nil {
+				return fmt.Errorf("inject guest agent: %w", err)
+			}
+
+			fmt.Printf("upgraded %s\n", img.Path)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&flagGuestAgentBinary, "guest-agent-binary", envOr("FCTL_GUEST_AGENT_BINARY", ""), "path to a pre-built linux guest-agent binary (required; see guest-agent/build.sh) (env: FCTL_GUEST_AGENT_BINARY)")
+	cmd.Flags().StringVar(&flagInitPath, "init-path", envOr("FCTL_IMAGE_INIT_PATH", "/bin/guest-agent"), "path inside the rootfs to install the guest agent at (changing this requires also updating vm/vm.go's boot_args) (env: FCTL_IMAGE_INIT_PATH)")
 	return cmd
 }
 
