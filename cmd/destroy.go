@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/128f/fctl/state"
-	"github.com/128f/fctl/vm"
+	"github.com/128f/labctl/state"
+	"github.com/128f/labctl/vm"
 	"github.com/spf13/cobra"
 )
 

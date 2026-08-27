@@ -33,7 +33,7 @@ func TestBuildPullsAndExtractsAlpine(t *testing.T) {
 	}
 	defer os.RemoveAll(result.RootfsDir)
 
-	for _, p := range []string{"etc/os-release", "bin/busybox", "etc/fctl/image-config.json", "bin/guest-agent"} {
+	for _, p := range []string{"etc/os-release", "bin/busybox", "etc/labctl/image-config.json", "bin/guest-agent"} {
 		if _, err := os.Stat(filepath.Join(result.RootfsDir, p)); err != nil {
 			t.Errorf("expected %s to exist: %v", p, err)
 		}
@@ -43,7 +43,7 @@ func TestBuildPullsAndExtractsAlpine(t *testing.T) {
 // TestPackExt4RealMkfs exercises the real mkfs.ext4 shell-out. Skipped if
 // mkfs.ext4 isn't on PATH, which is the expected case on macOS dev
 // machines without e2fsprogs installed — this can only run for real on
-// the Linux host fctl actually runs on.
+// the Linux host labctl actually runs on.
 func TestPackExt4RealMkfs(t *testing.T) {
 	if _, err := exec.LookPath("mkfs.ext4"); err != nil {
 		t.Skip("mkfs.ext4 not on PATH (expected on non-Linux dev machines)")

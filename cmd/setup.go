@@ -65,9 +65,9 @@ func runSetup(cfg *Config) error {
 		{"ip", "link", "set", "br0", "up"},
 		{"sysctl", "-w", "net.ipv4.ip_forward=1"},
 		{"mkdir", "-p", "/srv/jailer/firecracker"},
-		{"mkdir", "-p", "/sys/fs/cgroup/fctl"},
-		{"groupadd", "--system", "-g", gid, "fctl-vm"},
-		{"useradd", "--system", "--no-create-home", "-u", uid, "-g", gid, "fctl-vm"},
+		{"mkdir", "-p", "/sys/fs/cgroup/labctl"},
+		{"groupadd", "--system", "-g", gid, "labctl-vm"},
+		{"useradd", "--system", "--no-create-home", "-u", uid, "-g", gid, "labctl-vm"},
 		{"mkdir", "-p", cfg.DataDir},
 		{"chown", fmt.Sprintf("%s:%s", uid, gid), cfg.DataDir},
 	}
@@ -92,7 +92,7 @@ func runSetup(cfg *Config) error {
 // host's LAN (lanCIDR), and not the host itself.
 func applyNftRuleset(wan, lanCIDR string) error {
 	ruleset := fmt.Sprintf(`
-table inet fctl {
+table inet labctl {
 	chain forward {
 		type filter hook forward priority 0; policy drop;
 		iifname "br0" ip daddr %[2]s drop

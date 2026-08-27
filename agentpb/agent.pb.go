@@ -442,7 +442,7 @@ const file_guest_agent_proto_agent_proto_rawDesc = "" +
 	"restoredAt*)\n" +
 	"\fHealthStatus\x12\v\n" +
 	"\aHEALTHY\x10\x00\x12\f\n" +
-	"\bDEGRADED\x10\x01B\x1eZ\x1cgithub.com/128f/fctl/agentpbb\x06proto3"
+	"\bDEGRADED\x10\x01B Z\x1egithub.com/128f/labctl/agentpbb\x06proto3"
 
 var (
 	file_guest_agent_proto_agent_proto_rawDescOnce sync.Once

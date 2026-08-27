@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/128f/fctl/state"
-	"github.com/128f/fctl/vm/vmtest"
+	"github.com/128f/labctl/state"
+	"github.com/128f/labctl/vm/vmtest"
 )
 
 // tempLabDir returns a short-path temp dir suitable for unix sockets.
@@ -19,7 +19,7 @@ import (
 // past the ~104-byte sun_path limit once joined with vms/<bin>/<id>/root/run.
 func tempLabDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "fctltest-")
+	dir, err := os.MkdirTemp("/tmp", "labctltest-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestDestroy(t *testing.T) {
 }
 
 // TestDestroyKillsJailerProcess guards against a regression where Run wrote
-// fctl's own PID into pidPath instead of the jailer/firecracker process's
+// labctl's own PID into pidPath instead of the jailer/firecracker process's
 // PID (see cmd.Process.Pid in Run) — Destroy would then either no-op
 // against an already-gone PID or, worse, signal an unrelated process that
 // happened to reuse it. This asserts Destroy kills the actual process

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/128f/fctl/state"
-	"github.com/128f/fctl/vm"
+	"github.com/128f/labctl/state"
+	"github.com/128f/labctl/vm"
 	"github.com/spf13/cobra"
 )
 
@@ -81,7 +81,7 @@ func newSnapshotDeleteCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 			if snap == nil {
-				return fmt.Errorf("unknown snapshot: %s (see `fctl snapshot list`)", name)
+				return fmt.Errorf("unknown snapshot: %s (see `labctl snapshot list`)", name)
 			}
 
 			if err := s.DeleteSnapshot(snap.ID); err != nil {

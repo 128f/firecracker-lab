@@ -339,7 +339,7 @@ func tapName(i int) string { return fmt.Sprintf("tap%d", i) }
 func vmID(i int) string    { return fmt.Sprintf("vm%d", i) }
 func vmIP(i int) string    { return fmt.Sprintf("172.16.%d.%d", (i+2)/254, (i+2)%254+1) }
 
-// DBPath returns the default fctl.db path relative to dataDir.
+// DBPath returns the default labctl.db path relative to dataDir.
 func DBPath(dataDir string) string {
-	return filepath.Join(dataDir, "fctl.db")
+	return filepath.Join(dataDir, "labctl.db")
 }

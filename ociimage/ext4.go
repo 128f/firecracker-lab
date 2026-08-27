@@ -41,7 +41,7 @@ func (o PackExt4Options) mkfsBin() string {
 // PackExt4 packs RootfsDir into an ext4 image at OutPath by shelling out
 // directly to the host's mkfs.ext4 (e2fsprogs). mkfs.ext4 is Linux-only;
 // this is expected to fail with an actionable error on non-Linux hosts,
-// same as the rest of fctl assumes a Linux host with firecracker/jailer/ip
+// same as the rest of labctl assumes a Linux host with firecracker/jailer/ip
 // on PATH.
 func PackExt4(ctx context.Context, opts PackExt4Options) error {
 	if _, err := os.Stat(opts.OutPath); err == nil {

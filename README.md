@@ -8,7 +8,7 @@ The guest agent is planned to include an api, shell and heartbeat over vsock.
 
 - `firecracker` and `jailer` binaries (see `just deps` in this directory)
 - `vmlinux.bin` kernel
-- `mkfs.ext4` (`e2fsprogs`) — only required for `fctl image build`
+- `mkfs.ext4` (`e2fsprogs`) — only required for `labctl image build`
 - `--data-dir` on a **reflink-capable filesystem** (btrfs or xfs) — see
   [Storage](#storage) below
 - Run as root
@@ -22,22 +22,22 @@ invocation (a flag always overrides its env var if both are set):
 
 | Flag             | Env var                  | Default        |
 |------------------|---------------------------|----------------|
-| `--data-dir`     | `FCTL_DATA_DIR`           | `/var/lib/fctl`|
-| `--source-dir`   | `FCTL_SOURCE_DIR`         | `.`            |
-| `--firecracker`  | `FCTL_FIRECRACKER_BIN`    | `firecracker`  |
-| `--jailer`       | `FCTL_JAILER_BIN`         | `jailer`       |
+| `--data-dir`     | `LABCTL_DATA_DIR`           | `/var/lib/labctl`|
+| `--source-dir`   | `LABCTL_SOURCE_DIR`         | `.`            |
+| `--firecracker`  | `LABCTL_FIRECRACKER_BIN`    | `firecracker`  |
+| `--jailer`       | `LABCTL_JAILER_BIN`         | `jailer`       |
 
 Example:
 ```bash
-export FCTL_DATA_DIR=/mnt/xfs
-export FCTL_SOURCE_DIR=/mnt/xfs
-export FCTL_FIRECRACKER_BIN=./release-v1.14.3-x86_64/firecracker-v1.14.3-x86_64
-export FCTL_JAILER_BIN=./release-v1.14.3-x86_64/jailer-v1.14.3-x86_64
+export LABCTL_DATA_DIR=/mnt/xfs
+export LABCTL_SOURCE_DIR=/mnt/xfs
+export LABCTL_FIRECRACKER_BIN=./release-v1.14.3-x86_64/firecracker-v1.14.3-x86_64
+export LABCTL_JAILER_BIN=./release-v1.14.3-x86_64/jailer-v1.14.3-x86_64
 
-sudo -E ./fctl setup
-sudo -E ./fctl image import ./rootfs.ext4 --name base
-sudo -E ./fctl run --image base --count 3
-sudo -E ./fctl console vm0
+sudo -E ./labctl setup
+sudo -E ./labctl image import ./rootfs.ext4 --name base
+sudo -E ./labctl run --image base --count 3
+sudo -E ./labctl console vm0
 ```
 Note `sudo -E` — `sudo` strips the environment by default, so without
 `-E` these exports won't reach the command.
@@ -47,14 +47,14 @@ Note `sudo -E` — `sudo` strips the environment by default, so without
 Creates the bridge, cgroup parent, jailer dirs, and data dir. Run once per boot:
 
 ```bash
-sudo ./fctl setup
+sudo ./labctl setup
 ```
 
 This creates:
 - `br0` at `172.16.0.1/24` — all VM taps attach here
-- `/sys/fs/cgroup/fctl/` — parent cgroup for the VM pool
+- `/sys/fs/cgroup/labctl/` — parent cgroup for the VM pool
 - `/srv/jailer/firecracker/` — jailer symlink target dir
-- `--data-dir` (default `/var/lib/fctl`) — owned by the jailer vm user, holds all runtime state
+- `--data-dir` (default `/var/lib/labctl`) — owned by the jailer vm user, holds all runtime state
 
 ## Commands
 
@@ -63,8 +63,8 @@ This creates:
 Before running VMs, register at least one base rootfs image:
 
 ```bash
-sudo ./fctl image import ./rootfs.ext4 --name base
-sudo ./fctl image list
+sudo ./labctl image import ./rootfs.ext4 --name base
+sudo ./labctl image list
 ```
 
 `image import` copies `<path>` into `<data-dir>/images/<name>.ext4` (a
@@ -81,10 +81,10 @@ Build a bootable ext4 rootfs directly from an OCI/Docker image reference
 `.ext4` file:
 
 ```bash
-./fctl image build ubuntu:24.04 \
+./labctl image build ubuntu:24.04 \
   --guest-agent-binary ./guest-agent-bin \
   -o ubuntu-24.04.ext4
-sudo ./fctl image import ubuntu-24.04.ext4 --name ubuntu
+sudo ./labctl image import ubuntu-24.04.ext4 --name ubuntu
 ```
 
 Flags:
@@ -100,26 +100,26 @@ Flags:
 - `--size 2048M` — ext4 filesystem size
 
 **Requires `mkfs.ext4`** (`e2fsprogs`) on PATH — the same way the rest of
-`fctl` requires `firecracker`/`jailer`/`ip` on a real Linux host. Pulling
+`labctl` requires `firecracker`/`jailer`/`ip` on a real Linux host. Pulling
 and flattening the image itself is pure Go (via `crane`) and works
 anywhere; only the final packing step needs a Linux host with `e2fsprogs`.
 
 This command flattens the image's layers (`docker export` semantics, OCI
 whiteouts resolved) into a single rootfs, writes the image's Entrypoint /
-Cmd / Env / WorkingDir / User into `/etc/fctl/image-config.json` inside
+Cmd / Env / WorkingDir / User into `/etc/labctl/image-config.json` inside
 the rootfs, and installs the guest agent as `/bin/guest-agent`. **This is
 currently the only way workload/entrypoint information reaches the guest
-agent** — images imported via plain `fctl image import` of a hand-built
+agent** — images imported via plain `labctl image import` of a hand-built
 `.ext4` (e.g. from `just rootfs-ext4` or `guest-agent/build.sh`) have no
 `image-config.json` and the guest agent has nothing to read.
 
-It does **not** register the output into the state DB — run `fctl image
+It does **not** register the output into the state DB — run `labctl image
 import` afterward, same as any other `.ext4` file.
 
 ### create
 
 ```bash
-sudo ./fctl run [flags]
+sudo ./labctl run [flags]
 ```
 
 Flags:
@@ -129,12 +129,12 @@ Flags:
 - `--image name` — registered image to boot (default: the only registered image, if there's exactly one; required otherwise)
 - `--jailer path` — path to jailer binary (default: `jailer` on $PATH)
 - `--firecracker path` — path to firecracker binary (default: `firecracker` on $PATH)
-- `--data-dir path` — directory for VM state, images, and the state DB (default: `/var/lib/fctl`, or `$FCTL_DATA_DIR`)
+- `--data-dir path` — directory for VM state, images, and the state DB (default: `/var/lib/labctl`, or `$LABCTL_DATA_DIR`)
 - `--source-dir path` — directory containing build-time inputs (`vmlinux.bin`) (default: current directory)
 
 Example:
 ```bash
-sudo ./fctl run \
+sudo ./labctl run \
   --jailer ./release-v1.14.3-x86_64/jailer-v1.14.3-x86_64 \
   --firecracker ./release-v1.14.3-x86_64/firecracker-v1.14.3-x86_64 \
   --image base --vcpus 1 --mem 256 --count 5
@@ -142,7 +142,7 @@ sudo ./fctl run \
 
 For each VM, the run command will:
 1. Resolves `--image` to a registered image (path + id) via the state DB
-2. Allocates ID, tap name, IP, vsock CID via the state DB (`<data-dir>/fctl.db`)
+2. Allocates ID, tap name, IP, vsock CID via the state DB (`<data-dir>/labctl.db`)
 3. Creates `<data-dir>/vms/<id>/root/` chroot directory
 4. Hard-links `vmlinux.bin` (from `--source-dir`) into the chroot (no duplication)
 5. Reflink-copies the image into the chroot as `rootfs.ext4` (fails loudly if the data dir isn't reflink-capable — see [Storage](#storage))
@@ -155,7 +155,7 @@ For each VM, the run command will:
 ### destroy
 
 ```bash
-sudo ./fctl destroy <id>
+sudo ./labctl destroy <id>
 ```
 
 Halts the VM, removes tap, deletes chroot dir and jailer symlink, removes from state.json.
@@ -163,7 +163,7 @@ Halts the VM, removes tap, deletes chroot dir and jailer symlink, removes from s
 ### list
 
 ```bash
-sudo ./fctl list
+sudo ./labctl list
 ```
 
 Lists all VMs with tap, IP, CID, and live/stopped status (checked via `/proc/<pid>`).
@@ -171,13 +171,13 @@ Lists all VMs with tap, IP, CID, and live/stopped status (checked via `/proc/<pi
 ### status
 
 ```bash
-sudo ./fctl list  # per-VM status shown inline
+sudo ./labctl list  # per-VM status shown inline
 ```
 
 ### vsock
 
 ```bash
-sudo ./fctl vsock <id> [--port 1234]
+sudo ./labctl vsock <id> [--port 1234]
 ```
 
 Connects to a guest vsock listener on the given port (default `1234`),
@@ -187,11 +187,11 @@ raw mode for the duration of the session; press `ctrl+]` to detach.
 
 ## State
 
-All runtime state lives under `--data-dir` (default `/var/lib/fctl`, or
-`$FCTL_DATA_DIR`), independent of wherever the `fctl` binary itself lives:
+All runtime state lives under `--data-dir` (default `/var/lib/labctl`, or
+`$LABCTL_DATA_DIR`), independent of wherever the `labctl` binary itself lives:
 
-- `<data-dir>/fctl.db` — allocation ledger (ID, tap, IP, CID, vcpus, mem). Survives reboots. Written by create/destroy.
-- `<data-dir>/vms/` — ephemeral runtime state. Wiped on reboot. Managed entirely by fctl.
+- `<data-dir>/labctl.db` — allocation ledger (ID, tap, IP, CID, vcpus, mem). Survives reboots. Written by create/destroy.
+- `<data-dir>/vms/` — ephemeral runtime state. Wiped on reboot. Managed entirely by labctl.
 
 Each VM's directory:
 ```
@@ -209,7 +209,7 @@ Each VM's directory:
 
 All VMs share `br0`. Each gets a tap device (`tap0`, `tap1`, ...) and an IP in `172.16.0.0/24` (spills into subsequent /24s for >253 VMs). Gateway is `172.16.0.1` (the bridge).
 
-NAT/forwarding is not configured by fctl — add iptables rules manually if VMs need internet access.
+NAT/forwarding is not configured by labctl — add iptables rules manually if VMs need internet access.
 
 ## Storage
 
@@ -227,7 +227,7 @@ findmnt -no FSTYPE <data-dir>
 # or
 stat -f --format=%T <data-dir>
 ```
-Expect `btrfs` or `xfs`. On ext4 or anything else, `fctl run` will fail at
+Expect `btrfs` or `xfs`. On ext4 or anything else, `labctl run` will fail at
 the reflink-copy step.
 
 **Known limitation:** this ties the fast path to host filesystem choice.
@@ -239,13 +239,13 @@ acknowledged next step, not something implemented here.
 
 - Kernel (`vmlinux.bin`) — one copy on disk, hard-linked into each chroot
 - Per-VM rootfs (`rootfs.ext4`) — reflink-cloned per VM from the registered base image (see [Storage](#storage))
-- Cgroup parent (`/sys/fs/cgroup/fctl/`) — set pool-wide limits here; jailer creates per-VM leaf cgroups beneath it
+- Cgroup parent (`/sys/fs/cgroup/labctl/`) — set pool-wide limits here; jailer creates per-VM leaf cgroups beneath it
 
 ## Recovery
 
-If VMs are killed without `fctl destroy` (e.g. reboot):
+If VMs are killed without `labctl destroy` (e.g. reboot):
 ```bash
 rm -rf <data-dir>/vms/
-# edit <data-dir>/fctl.db to remove stale entries, or:
-rm <data-dir>/fctl.db
+# edit <data-dir>/labctl.db to remove stale entries, or:
+rm <data-dir>/labctl.db
 ```

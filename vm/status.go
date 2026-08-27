@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/128f/fctl/agentpb"
+	"github.com/128f/labctl/agentpb"
 	"google.golang.org/protobuf/proto"
 )
 

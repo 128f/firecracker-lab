@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/128f/fctl/ociimage"
-	"github.com/128f/fctl/state"
+	"github.com/128f/labctl/ociimage"
+	"github.com/128f/labctl/state"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +51,7 @@ func newImageUpgradeCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 			if img == nil {
-				return fmt.Errorf("unknown image: %s (see `fctl image list`)", name)
+				return fmt.Errorf("unknown image: %s (see `labctl image list`)", name)
 			}
 
 			fmt.Printf("injecting guest agent into %s (%s)...\n", img.Name, img.Path)
@@ -67,8 +67,8 @@ func newImageUpgradeCmd(cfg *Config) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&flagGuestAgentBinary, "guest-agent-binary", envOr("FCTL_GUEST_AGENT_BINARY", ""), "path to a pre-built linux guest-agent binary (required; see guest-agent/build.sh) (env: FCTL_GUEST_AGENT_BINARY)")
-	cmd.Flags().StringVar(&flagInitPath, "init-path", envOr("FCTL_IMAGE_INIT_PATH", "/bin/guest-agent"), "path inside the rootfs to install the guest agent at (changing this requires also updating vm/vm.go's boot_args) (env: FCTL_IMAGE_INIT_PATH)")
+	cmd.Flags().StringVar(&flagGuestAgentBinary, "guest-agent-binary", envOr("LABCTL_GUEST_AGENT_BINARY", ""), "path to a pre-built linux guest-agent binary (required; see guest-agent/build.sh) (env: LABCTL_GUEST_AGENT_BINARY)")
+	cmd.Flags().StringVar(&flagInitPath, "init-path", envOr("LABCTL_IMAGE_INIT_PATH", "/bin/guest-agent"), "path inside the rootfs to install the guest agent at (changing this requires also updating vm/vm.go's boot_args) (env: LABCTL_IMAGE_INIT_PATH)")
 	return cmd
 }
 
@@ -173,7 +173,7 @@ func newImageDeleteCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 			if img == nil {
-				return fmt.Errorf("unknown image: %s (see `fctl image list`)", name)
+				return fmt.Errorf("unknown image: %s (see `labctl image list`)", name)
 			}
 
 			inUse, err := s.CountVMsUsingImage(img.ID)

@@ -21,7 +21,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/128f/fctl/state"
+	"github.com/128f/labctl/state"
 )
 
 const bridgeName = "br0"
@@ -83,7 +83,7 @@ func (r *Runner) VsockPath(id string) string {
 }
 
 func (r *Runner) pidPath(id string) string {
-	return filepath.Join(r.vmDir(id), "fctl.pid")
+	return filepath.Join(r.vmDir(id), "labctl.pid")
 }
 
 // BootLogPath returns the path to the file the VM's serial console
@@ -108,7 +108,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 	// Write the jailer/firecracker process's PID (it execve's into
 	// firecracker after chroot/namespace setup, keeping this same PID for
 	// the VM's whole lifetime) so destroy/snapshot can kill it later, from
-	// a separate fctl invocation.
+	// a separate labctl invocation.
 	if err := os.WriteFile(r.pidPath(vm.ID), []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
 		return err
 	}

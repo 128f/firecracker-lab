@@ -18,7 +18,7 @@ fn default_cmd() -> Vec<String> {
 }
 
 pub fn spawn_pty_process() -> anyhow::Result<(OwnedFd, Child)> {
-    let config_file = fs::read_to_string("/etc/fctl/image-config.json")?;
+    let config_file = fs::read_to_string("/etc/labctl/image-config.json")?;
     let config: ImageConfig = serde_json::from_str(&config_file)?;
 
     let (pty, pts) = pty_process::blocking::open()?;

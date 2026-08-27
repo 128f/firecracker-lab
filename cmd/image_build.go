@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/128f/fctl/ociimage"
+	"github.com/128f/labctl/ociimage"
 	"github.com/spf13/cobra"
 )
 
@@ -59,16 +59,16 @@ func newImageBuildCmd(cfg *Config) *cobra.Command {
 			}
 
 			fmt.Printf("built %s\n", flagOutput)
-			fmt.Printf("next: fctl image import %s --name <name>\n", flagOutput)
+			fmt.Printf("next: labctl image import %s --name <name>\n", flagOutput)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&flagPlatform, "platform", envOr("FCTL_IMAGE_PLATFORM", "linux/amd64"), "target platform for the pulled image (this repo assumes x86_64 throughout) (env: FCTL_IMAGE_PLATFORM)")
-	cmd.Flags().StringVar(&flagGuestAgentBinary, "guest-agent-binary", envOr("FCTL_GUEST_AGENT_BINARY", ""), "path to a pre-built linux guest-agent binary (required; see guest-agent/build.sh) (env: FCTL_GUEST_AGENT_BINARY)")
-	cmd.Flags().StringVar(&flagInitPath, "init-path", envOr("FCTL_IMAGE_INIT_PATH", "/bin/guest-agent"), "path inside the rootfs to install the guest agent at (changing this requires also updating vm/vm.go's boot_args) (env: FCTL_IMAGE_INIT_PATH)")
+	cmd.Flags().StringVar(&flagPlatform, "platform", envOr("LABCTL_IMAGE_PLATFORM", "linux/amd64"), "target platform for the pulled image (this repo assumes x86_64 throughout) (env: LABCTL_IMAGE_PLATFORM)")
+	cmd.Flags().StringVar(&flagGuestAgentBinary, "guest-agent-binary", envOr("LABCTL_GUEST_AGENT_BINARY", ""), "path to a pre-built linux guest-agent binary (required; see guest-agent/build.sh) (env: LABCTL_GUEST_AGENT_BINARY)")
+	cmd.Flags().StringVar(&flagInitPath, "init-path", envOr("LABCTL_IMAGE_INIT_PATH", "/bin/guest-agent"), "path inside the rootfs to install the guest agent at (changing this requires also updating vm/vm.go's boot_args) (env: LABCTL_IMAGE_INIT_PATH)")
 	cmd.Flags().StringVarP(&flagOutput, "output", "o", "", "output .ext4 file path (required)")
-	cmd.Flags().StringVar(&flagSize, "size", envOr("FCTL_IMAGE_SIZE", "2048M"), "size of the ext4 filesystem (passed to mkfs.ext4) (env: FCTL_IMAGE_SIZE)")
+	cmd.Flags().StringVar(&flagSize, "size", envOr("LABCTL_IMAGE_SIZE", "2048M"), "size of the ext4 filesystem (passed to mkfs.ext4) (env: LABCTL_IMAGE_SIZE)")
 	cmd.Flags().BoolVar(&flagLocal, "local", false, "load ref from the local docker daemon instead of pulling from a remote registry")
 
 	return cmd

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/128f/fctl/state"
+	"github.com/128f/labctl/state"
 )
 
 // RecordedRequest is one HTTP request captured by FakeFirecracker.

@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/128f/fctl/state"
-	"github.com/128f/fctl/vm"
+	"github.com/128f/labctl/state"
+	"github.com/128f/labctl/vm"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +34,7 @@ func newRestoreCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 			if snap == nil {
-				return fmt.Errorf("unknown snapshot: %s (see `fctl snapshot list`)", name)
+				return fmt.Errorf("unknown snapshot: %s (see `labctl snapshot list`)", name)
 			}
 
 			v, err := s.AllocateAndInsert(snap.VCPUs, snap.MemMiB, "")
@@ -64,7 +64,7 @@ func newRestoreCmd(cfg *Config) *cobra.Command {
 	cmd.Flags().IntVar(&flagUID, "uid", 123, "uid for jailer vm user")
 	cmd.Flags().IntVar(&flagGID, "gid", 123, "gid for jailer vm user")
 	cmd.Flags().BoolVarP(&flagAttachConsole, "attach-console", "a", false, "run VM in foreground, attached to its console (default: detached, runs in background)")
-	cmd.Flags().StringVar(&flagJailerBin, "jailer", defaultJailerBin(), "path to jailer binary (env: FCTL_JAILER_BIN)")
+	cmd.Flags().StringVar(&flagJailerBin, "jailer", defaultJailerBin(), "path to jailer binary (env: LABCTL_JAILER_BIN)")
 
 	return cmd
 }

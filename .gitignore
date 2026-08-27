@@ -5,4 +5,4 @@ ubuntu-24.04.squashfs
 vmlinux.bin
 vms/
 state.json
-fctl
+labctl

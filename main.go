@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/128f/fctl/cmd"
+	"github.com/128f/labctl/cmd"
 )
 
 func main() {

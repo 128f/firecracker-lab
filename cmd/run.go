@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/128f/fctl/state"
-	"github.com/128f/fctl/vm"
+	"github.com/128f/labctl/state"
+	"github.com/128f/labctl/vm"
 	"github.com/spf13/cobra"
 )
 
@@ -67,7 +67,7 @@ func newRunCmd(cfg *Config) *cobra.Command {
 	cmd.Flags().IntVar(&flagUID, "uid", 123, "uid for jailer vm user")
 	cmd.Flags().IntVar(&flagGID, "gid", 123, "gid for jailer vm user")
 	cmd.Flags().BoolVarP(&flagAttachConsole, "attach-console", "a", false, "run VM in foreground, attached to its console (default: detached, runs in background)")
-	cmd.Flags().StringVar(&flagJailerBin, "jailer", defaultJailerBin(), "path to jailer binary (env: FCTL_JAILER_BIN)")
+	cmd.Flags().StringVar(&flagJailerBin, "jailer", defaultJailerBin(), "path to jailer binary (env: LABCTL_JAILER_BIN)")
 	cmd.Flags().StringVar(&flagImage, "image", "", "name of the registered image to boot (default: the only registered image, if there's exactly one)")
 
 	return cmd
@@ -82,7 +82,7 @@ func resolveImage(s *state.State, name string) (*state.Image, error) {
 			return nil, err
 		}
 		if img == nil {
-			return nil, fmt.Errorf("unknown image: %s (see `fctl image list`)", name)
+			return nil, fmt.Errorf("unknown image: %s (see `labctl image list`)", name)
 		}
 		return img, nil
 	}
@@ -93,10 +93,10 @@ func resolveImage(s *state.State, name string) (*state.Image, error) {
 	}
 	switch len(images) {
 	case 0:
-		return nil, fmt.Errorf("no images registered; import one with `fctl image import <path> --name <name>`")
+		return nil, fmt.Errorf("no images registered; import one with `labctl image import <path> --name <name>`")
 	case 1:
 		return images[0], nil
 	default:
-		return nil, fmt.Errorf("--image is required: %d images registered (see `fctl image list`)", len(images))
+		return nil, fmt.Errorf("--image is required: %d images registered (see `labctl image list`)", len(images))
 	}
 }

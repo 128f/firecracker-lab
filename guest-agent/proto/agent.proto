@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package agent;
 
-option go_package = "github.com/128f/fctl/agentpb";
+option go_package = "github.com/128f/labctl/agentpb";
 
 message Request {
     oneof request_type {

@@ -11,7 +11,7 @@ rootfs_size := "512M"
 deps: firecracker-release vmlinux-bin rootfs-ext4
 
 build:
-    go build -o fctl .
+    go build -o labctl .
 
 [private]
 firecracker-tgz:

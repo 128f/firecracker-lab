@@ -1,4 +1,4 @@
-module github.com/128f/fctl
+module github.com/128f/labctl
 
 go 1.25.0
 

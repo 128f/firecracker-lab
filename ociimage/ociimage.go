@@ -1,5 +1,5 @@
 // Package ociimage builds a bootable ext4 rootfs image from an OCI/Docker
-// image reference, for use with fctl's guest-agent-as-PID1 boot model.
+// image reference, for use with labctl's guest-agent-as-PID1 boot model.
 package ociimage
 
 import (
@@ -22,7 +22,7 @@ import (
 // imageConfigPath is where the pulled image's runtime config is written,
 // relative to the rootfs root, so the guest agent (running as PID1) can
 // read it to know what workload to execute.
-const imageConfigPath = "etc/fctl/image-config.json"
+const imageConfigPath = "etc/labctl/image-config.json"
 
 // defaultInitPath matches vm/vm.go's hardcoded boot_args init= path.
 // Changing InitPath away from this requires also updating vm/vm.go.
@@ -122,7 +122,7 @@ func (b *Builder) Build(ctx context.Context, ref string) (*BuildResult, error) {
 		return nil, fmt.Errorf("read image config: %w", err)
 	}
 
-	dir, err := os.MkdirTemp("", "fctl-image-build-*")
+	dir, err := os.MkdirTemp("", "labctl-image-build-*")
 	if err != nil {
 		return nil, fmt.Errorf("mkdir temp dir: %w", err)
 	}

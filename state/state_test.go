@@ -7,7 +7,7 @@ import (
 )
 
 func TestAllocateAndInsertConcurrent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "fctl.db")
+	dbPath := filepath.Join(t.TempDir(), "labctl.db")
 	s, err := Load(dbPath)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -66,7 +66,7 @@ func TestAllocateAndInsertConcurrent(t *testing.T) {
 }
 
 func TestAllocateReusesGapAfterRemove(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "fctl.db")
+	dbPath := filepath.Join(t.TempDir(), "labctl.db")
 	s, err := Load(dbPath)
 	if err != nil {
 		t.Fatalf("Load: %v", err)

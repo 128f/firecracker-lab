@@ -38,10 +38,10 @@ func (o InjectGuestAgentOptions) initPath() string {
 
 // InjectGuestAgent writes GuestAgentBinary into an existing ext4 image at
 // InitPath, in place, clobbering whatever is already there. This is the
-// upgrade path for images already registered with fctl.
+// upgrade path for images already registered with labctl.
 //
 // It works by loopback-mounting the image and writing through the real
-// ext4 driver (requires root, same as the rest of fctl's Linux-host
+// ext4 driver (requires root, same as the rest of labctl's Linux-host
 // assumptions), rather than poking at the filesystem structures directly
 // -- a prior version of this used debugfs's raw rm/write commands, which
 // left the directory index inconsistent and corrupted the image (a
@@ -74,7 +74,7 @@ func InjectGuestAgent(ctx context.Context, opts InjectGuestAgentOptions) error {
 		}
 	}
 
-	mountDir, err := os.MkdirTemp("", "fctl-image-upgrade-*")
+	mountDir, err := os.MkdirTemp("", "labctl-image-upgrade-*")
 	if err != nil {
 		return fmt.Errorf("mkdir temp mount dir: %w", err)
 	}
