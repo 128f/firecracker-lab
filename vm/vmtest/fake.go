@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/128f/labctl/state"
 )
@@ -131,39 +132,78 @@ func (f *FakeFirecracker) Close() {
 	_ = os.Remove(f.sockPath)
 }
 
-// FakeJailerLauncher is a vm.JailerLauncher that starts a FakeFirecracker
-// instead of exec'ing the real jailer/firecracker binaries.
-type FakeJailerLauncher struct {
+// FakeSupervisor is a vm.VMSupervisor that starts a FakeFirecracker and
+// tracks a real, killable "sleep" child process per unit, instead of
+// shelling out to systemd-run/systemctl — so tests exercise Stop/Wait/
+// IsAlive against a genuine process without requiring a real systemd
+// instance.
+type FakeSupervisor struct {
 	API *FakeFirecracker
 
-	mu  sync.Mutex
-	cmd *exec.Cmd
+	mu    sync.Mutex
+	procs map[string]*exec.Cmd // keyed by vm.Unit
 }
 
-func (f *FakeJailerLauncher) Launch(vm *state.VM) (*exec.Cmd, error) {
+func (f *FakeSupervisor) Launch(vm *state.VM) error {
 	if err := f.API.Start(); err != nil {
-		return nil, err
+		return err
 	}
 	// Stand in for the real jailer with a genuine, killable child process,
-	// so callers that record cmd.Process.Pid and later kill it (Destroy,
-	// Snapshot) exercise real kill semantics instead of an empty *exec.Cmd.
+	// so callers that later stop it (Destroy, Snapshot) exercise real kill
+	// semantics instead of a no-op.
 	cmd := exec.Command("sleep", "300")
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start fake jailer process: %w", err)
+		return fmt.Errorf("start fake supervised process: %w", err)
 	}
 	f.mu.Lock()
-	f.cmd = cmd
+	if f.procs == nil {
+		f.procs = make(map[string]*exec.Cmd)
+	}
+	f.procs[vm.Unit] = cmd
 	f.mu.Unlock()
-	return cmd, nil
+	return nil
 }
 
-// LaunchedProcess returns the *exec.Cmd most recently started by Launch,
-// so tests can inspect or Wait on it (e.g. to confirm a kill actually
-// terminated it, and to reap it rather than leaving a zombie).
-func (f *FakeJailerLauncher) LaunchedProcess() *exec.Cmd {
+func (f *FakeSupervisor) Stop(vm *state.VM) error {
+	cmd := f.process(vm)
+	if cmd == nil {
+		return nil // mirrors systemctl stop on an unknown unit
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		return nil
+	}
+	cmd.Wait() // reap; this is our own child in tests
+	return nil
+}
+
+func (f *FakeSupervisor) Wait(vm *state.VM) (string, error) {
+	cmd := f.process(vm)
+	if cmd == nil {
+		return "inactive", nil
+	}
+	cmd.Wait()
+	return "failed", nil
+}
+
+func (f *FakeSupervisor) IsAlive(vm *state.VM) bool {
+	cmd := f.process(vm)
+	if cmd == nil {
+		return false
+	}
+	return cmd.Process.Signal(syscall.Signal(0)) == nil
+}
+
+func (f *FakeSupervisor) process(vm *state.VM) *exec.Cmd {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.cmd
+	return f.procs[vm.Unit]
+}
+
+// LaunchedProcess returns the *exec.Cmd most recently started for vm's
+// unit, so tests can inspect or Wait on it (e.g. to confirm a kill
+// actually terminated it, and to reap it rather than leaving a zombie).
+func (f *FakeSupervisor) LaunchedProcess(vm *state.VM) *exec.Cmd {
+	return f.process(vm)
 }
 
 // NoopNetworkProvisioner is a vm.NetworkProvisioner that records calls

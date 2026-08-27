@@ -39,6 +39,7 @@ func fixtureVM() *state.VM {
 		CID:    5,
 		VCPUs:  2,
 		MemMiB: 512,
+		Unit:   state.UnitName("vm0"),
 	}
 }
 
@@ -72,23 +73,12 @@ func writeFixtureImages(t *testing.T, labDir string) {
 	}
 }
 
-// killTestProcess registers a best-effort cleanup that kills whatever
-// process is recorded at r.pidPath(id), for tests that launch a (fake)
-// jailer process via Run/Restore without tearing it down themselves via
-// Destroy/Snapshot.
-func killTestProcess(t *testing.T, r *Runner, id string) {
+// killTestProcess registers a best-effort cleanup that stops vm's
+// supervised process, for tests that launch a (fake) jailer process via
+// Run/Restore without tearing it down themselves via Destroy/Snapshot.
+func killTestProcess(t *testing.T, r *Runner, vm *state.VM) {
 	t.Helper()
-	t.Cleanup(func() {
-		data, err := os.ReadFile(r.pidPath(id))
-		if err != nil {
-			return
-		}
-		var pid int
-		fmt.Sscanf(string(data), "%d", &pid)
-		if p, err := os.FindProcess(pid); err == nil {
-			p.Kill()
-		}
-	})
+	t.Cleanup(func() { r.supervisor().Stop(vm) })
 }
 
 func TestRunHappyPath(t *testing.T) {
@@ -100,14 +90,14 @@ func TestRunHappyPath(t *testing.T) {
 
 	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
 	defer api.Close()
-	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
 	noop := &vmtest.NoopNetworkProvisioner{}
 	r.Net = noop
 
 	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	killTestProcess(t, r, vm.ID)
+	killTestProcess(t, r, vm)
 
 	reqs := api.Requests()
 	wantPaths := []string{
@@ -163,14 +153,14 @@ func TestRunErrorPathStopsAtFailure(t *testing.T) {
 	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
 	defer api.Close()
 	api.FailNext("/machine-config", 500)
-	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
 	r.Net = &vmtest.NoopNetworkProvisioner{}
 
 	err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false)
 	if err == nil {
 		t.Fatal("Run: expected error, got nil")
 	}
-	killTestProcess(t, r, vm.ID)
+	killTestProcess(t, r, vm)
 
 	reqs := api.Requests()
 	if len(reqs) != 3 {
@@ -188,16 +178,9 @@ func TestDestroy(t *testing.T) {
 	r := newTestRunner(t, labDir)
 	vm := fixtureVM()
 
-	// Stand in for what Run() would have set up: chroot dir + pid file.
-	// Use a pid that (almost certainly) doesn't exist so Destroy's kill is
-	// a harmless no-op rather than signaling a real process.
-	runDir := filepath.Join(r.vmDir(vm.ID), "root", "run")
-	if err := os.MkdirAll(runDir, 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(r.pidPath(vm.ID), []byte("999999"), 0644); err != nil {
-		t.Fatalf("write pid file: %v", err)
-	}
+	// Destroy's Stop against a unit that was never Launch'd (no
+	// vmtest.FakeSupervisor set here) is a harmless no-op, mirroring
+	// systemctl stop on an unknown unit.
 
 	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
 	defer api.Close()
@@ -206,6 +189,7 @@ func TestDestroy(t *testing.T) {
 	}
 	noop := &vmtest.NoopNetworkProvisioner{}
 	r.Net = noop
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
 
 	if err := r.Destroy(vm); err != nil {
 		t.Fatalf("Destroy: %v", err)
@@ -231,13 +215,11 @@ func TestDestroy(t *testing.T) {
 	}
 }
 
-// TestDestroyKillsJailerProcess guards against a regression where Run wrote
-// labctl's own PID into pidPath instead of the jailer/firecracker process's
-// PID (see cmd.Process.Pid in Run) — Destroy would then either no-op
-// against an already-gone PID or, worse, signal an unrelated process that
-// happened to reuse it. This asserts Destroy kills the actual process
-// Launch started.
-func TestDestroyKillsJailerProcess(t *testing.T) {
+// TestDestroyStopsSupervisedProcess guards against a regression where
+// Destroy fails to stop the actual process Launch started for a VM's unit
+// (e.g. mixing up units across VMs, or no-oping instead of really
+// stopping it).
+func TestDestroyStopsSupervisedProcess(t *testing.T) {
 	labDir := tempLabDir(t)
 	writeFixtureImages(t, labDir)
 
@@ -246,31 +228,18 @@ func TestDestroyKillsJailerProcess(t *testing.T) {
 
 	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
 	defer api.Close()
-	launcher := &vmtest.FakeJailerLauncher{API: api}
-	r.Jailer = launcher
+	launcher := &vmtest.FakeSupervisor{API: api}
+	r.Supervisor = launcher
 	r.Net = &vmtest.NoopNetworkProvisioner{}
 
 	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	killTestProcess(t, r, vm.ID) // best-effort backstop if the assertions below fail early
+	killTestProcess(t, r, vm) // best-effort backstop if the assertions below fail early
 
-	cmd := launcher.LaunchedProcess()
+	cmd := launcher.LaunchedProcess(vm)
 	if cmd == nil {
 		t.Fatal("no process launched")
-	}
-
-	data, err := os.ReadFile(r.pidPath(vm.ID))
-	if err != nil {
-		t.Fatalf("read pid file: %v", err)
-	}
-	var recordedPid int
-	fmt.Sscanf(string(data), "%d", &recordedPid)
-	if recordedPid != cmd.Process.Pid {
-		t.Fatalf("pidPath recorded pid %d, want the launched jailer process's pid %d", recordedPid, cmd.Process.Pid)
-	}
-	if recordedPid == os.Getpid() {
-		t.Fatalf("pidPath recorded this test process's own pid (%d)", recordedPid)
 	}
 
 	if err := r.Destroy(vm); err != nil {
@@ -295,10 +264,9 @@ func TestDestroyKillsJailerProcess(t *testing.T) {
 // seedSnapshottableVM creates the on-disk state Snapshot expects to find for
 // vm: a chroot root/ dir containing rootfs.ext4, snapshot.bin, and mem.bin
 // (standing in for what a live Run + real firecracker's /snapshot/create
-// would have produced), plus a pid file. The pid is deliberately bogus
-// (almost certainly unused) rather than this test process's own pid, since
-// Snapshot kills whatever pid it finds there — using a real Run() here
-// would plant this test binary's own pid and Snapshot would kill it.
+// would have produced). Snapshot's Stop against a unit that was never
+// Launch'd (no vmtest.FakeSupervisor tracking it) is a harmless no-op, so
+// no process needs to be seeded here.
 func seedSnapshottableVM(t *testing.T, r *Runner, vm *state.VM) {
 	t.Helper()
 	root := filepath.Join(r.vmDir(vm.ID), "root")
@@ -313,9 +281,6 @@ func seedSnapshottableVM(t *testing.T, r *Runner, vm *state.VM) {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0644); err != nil {
 			t.Fatalf("write %s fixture: %v", name, err)
 		}
-	}
-	if err := os.WriteFile(r.pidPath(vm.ID), []byte("999999"), 0644); err != nil {
-		t.Fatalf("write pid file: %v", err)
 	}
 }
 
@@ -333,6 +298,7 @@ func TestSnapshotHappyPath(t *testing.T) {
 	}
 	noop := &vmtest.NoopNetworkProvisioner{}
 	r.Net = noop
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
 
 	snapDir := filepath.Join(labDir, "snapshots", "mysnap")
 	if err := r.Snapshot(vm, snapDir); err != nil {
@@ -437,14 +403,15 @@ func TestRestoreHappyPath(t *testing.T) {
 
 	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
 	defer api.Close()
-	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
+	launcher := &vmtest.FakeSupervisor{API: api}
+	r.Supervisor = launcher
 	noop := &vmtest.NoopNetworkProvisioner{}
 	r.Net = noop
 
 	if err := r.Restore(vm, snapDir, false); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
-	killTestProcess(t, r, vm.ID)
+	killTestProcess(t, r, vm)
 
 	reqs := api.Requests()
 	if len(reqs) != 1 {
@@ -487,8 +454,8 @@ func TestRestoreHappyPath(t *testing.T) {
 		t.Errorf("network calls = %v, want [setup:%s]", noop.Calls, vm.Tap)
 	}
 
-	if _, err := os.Stat(r.pidPath(vm.ID)); err != nil {
-		t.Errorf("pid file not written: %v", err)
+	if launcher.LaunchedProcess(vm) == nil {
+		t.Error("no process launched")
 	}
 }
 
@@ -511,13 +478,13 @@ func TestRestoreErrorPathStopsAtFailure(t *testing.T) {
 	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
 	defer api.Close()
 	api.FailNext("/snapshot/load", 500)
-	r.Jailer = &vmtest.FakeJailerLauncher{API: api}
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
 	r.Net = &vmtest.NoopNetworkProvisioner{}
 
 	if err := r.Restore(vm, snapDir, false); err == nil {
 		t.Fatal("Restore: expected error, got nil")
 	}
-	killTestProcess(t, r, vm.ID)
+	killTestProcess(t, r, vm)
 }
 
 func TestSetupChroot(t *testing.T) {

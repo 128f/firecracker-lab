@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -35,7 +35,7 @@ type Runner struct {
 	GID            int
 	Logger         *slog.Logger
 	Net            NetworkProvisioner // nil => real iproute2 implementation
-	Jailer         JailerLauncher     // nil => real jailer exec implementation
+	Supervisor     VMSupervisor       // nil => real systemd-run/systemctl implementation
 }
 
 // NetworkProvisioner sets up and tears down the tap device for a VM.
@@ -44,9 +44,24 @@ type NetworkProvisioner interface {
 	TeardownTap(vm *state.VM) error
 }
 
-// JailerLauncher starts the jailer/firecracker process for a VM.
-type JailerLauncher interface {
-	Launch(vm *state.VM) (*exec.Cmd, error)
+// VMSupervisor launches a VM's jailer/firecracker process under a
+// supervised, deterministically-named unit (vm.Unit) and provides the
+// primitives needed to stop it, wait for it to exit, and check whether
+// it's still running — all keyed by that unit name rather than a raw pid,
+// so there's never a live *os.Process handle for another labctl invocation
+// to lose track of.
+type VMSupervisor interface {
+	// Launch starts vm's jailer process under vm.Unit and returns once the
+	// unit has been accepted and started (not once the VM has booted).
+	Launch(vm *state.VM) error
+	// Stop stops vm's unit, blocking until it and its whole cgroup have
+	// exited. A no-op, returning nil, if the unit doesn't exist.
+	Stop(vm *state.VM) error
+	// Wait blocks until vm's unit leaves the active/activating state,
+	// returning the terminal state reached (e.g. "failed", "inactive").
+	Wait(vm *state.VM) (string, error)
+	// IsAlive reports whether vm's unit is currently active.
+	IsAlive(vm *state.VM) bool
 }
 
 func (r *Runner) net() NetworkProvisioner {
@@ -56,11 +71,11 @@ func (r *Runner) net() NetworkProvisioner {
 	return &iproute2NetworkProvisioner{r: r}
 }
 
-func (r *Runner) jailer() JailerLauncher {
-	if r.Jailer != nil {
-		return r.Jailer
+func (r *Runner) supervisor() VMSupervisor {
+	if r.Supervisor != nil {
+		return r.Supervisor
 	}
-	return &execJailerLauncher{r: r}
+	return &systemdSupervisor{r: r}
 }
 
 func (r *Runner) log() *slog.Logger {
@@ -82,10 +97,6 @@ func (r *Runner) VsockPath(id string) string {
 	return filepath.Join(r.vmDir(id), "root", "run", "vsock.sock")
 }
 
-func (r *Runner) pidPath(id string) string {
-	return filepath.Join(r.vmDir(id), "labctl.pid")
-}
-
 // BootLogPath returns the path to the file the VM's serial console
 // (ttyS0) boot output is dumped to.
 func (r *Runner) BootLogPath(id string) string {
@@ -100,16 +111,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 		return err
 	}
 
-	cmd, err := r.jailer().Launch(vm)
-	if err != nil {
-		return err
-	}
-
-	// Write the jailer/firecracker process's PID (it execve's into
-	// firecracker after chroot/namespace setup, keeping this same PID for
-	// the VM's whole lifetime) so destroy/snapshot can kill it later, from
-	// a separate labctl invocation.
-	if err := os.WriteFile(r.pidPath(vm.ID), []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
+	if err := r.supervisor().Launch(vm); err != nil {
 		return err
 	}
 
@@ -123,7 +125,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 		return err
 	}
 
-	return r.waitOrBackground(vm.ID, cmd, attach)
+	return r.waitOrBackground(vm, attach)
 }
 
 // waitOrBackground implements the attach/foreground-vs-detached-background
@@ -132,7 +134,8 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 // (like the `console` command) and blocks until the jailer process exits,
 // the user detaches with ctrl+], or a SIGINT/SIGTERM arrives — the first
 // two leave the VM running, the signal kills it.
-func (r *Runner) waitOrBackground(id string, cmd *exec.Cmd, attach bool) error {
+func (r *Runner) waitOrBackground(vm *state.VM, attach bool) error {
+	id := vm.ID
 	if !attach {
 		r.log().Info("VM running in background", "vm", id)
 		return nil
@@ -144,7 +147,18 @@ func (r *Runner) waitOrBackground(id string, cmd *exec.Cmd, attach bool) error {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
 	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
+	go func() {
+		state, err := r.supervisor().Wait(vm)
+		if err != nil {
+			exited <- err
+			return
+		}
+		if state == "failed" {
+			exited <- fmt.Errorf("unit %s exited in failed state", vm.Unit)
+			return
+		}
+		exited <- nil
+	}()
 
 	consoleDone := make(chan error, 1)
 	go func() { consoleDone <- r.AttachConsole(id) }()
@@ -154,7 +168,7 @@ func (r *Runner) waitOrBackground(id string, cmd *exec.Cmd, attach bool) error {
 		return err
 	case <-sig:
 		r.log().Info("signal received, killing VM", "vm", id)
-		cmd.Process.Kill()
+		r.supervisor().Stop(vm)
 		// Wait for the console session to unwind (killing the process
 		// tears down the vsock backend, which unblocks AttachConsole) so
 		// its deferred terminal restore runs before we return.
@@ -258,12 +272,34 @@ func (n *iproute2NetworkProvisioner) TeardownTap(vm *state.VM) error {
 	return nil
 }
 
-// execJailerLauncher execs the real jailer/firecracker binaries.
-type execJailerLauncher struct{ r *Runner }
+// systemdSupervisor runs the real jailer/firecracker process as a
+// transient systemd service unit, named vm.Unit, and manages it via
+// systemd-run/systemctl.
+type systemdSupervisor struct{ r *Runner }
 
-func (j *execJailerLauncher) Launch(vm *state.VM) (*exec.Cmd, error) {
-	r := j.r
+func (s *systemdSupervisor) Launch(vm *state.VM) error {
+	r := s.r
+
+	// The guest's serial console (ttyS0, kernel boot output only — the
+	// guest agent no longer forwards a shell to it) is just dumped to a
+	// log file; nothing needs to read or write it interactively anymore.
+	// Truncate/create up front: systemd's StandardOutput=file: property
+	// appends rather than truncating.
+	logPath := r.BootLogPath(vm.ID)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("open console log: %w", err)
+	}
+	logFile.Close()
+
 	args := []string{
+		"--unit", vm.Unit,
+		"--collect",
+		"--property", "Delegate=yes",
+		"--property", "StandardOutput=file:" + logPath,
+		"--property", "StandardError=file:" + logPath,
+		"--",
+		r.JailerBin,
 		"--id", vm.ID,
 		"--exec-file", r.FirecrackerBin,
 		"--uid", fmt.Sprintf("%d", r.UID),
@@ -276,24 +312,51 @@ func (j *execJailerLauncher) Launch(vm *state.VM) (*exec.Cmd, error) {
 		"--level", "Debug",
 	}
 
-	cmd := exec.Command(r.JailerBin, args...)
-	cmd.Stderr = os.Stderr
+	if out, err := exec.Command("systemd-run", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("systemd-run: %s: %w", out, err)
+	}
+	return nil
+}
 
-	// The guest's serial console (ttyS0, kernel boot output only — the
-	// guest agent no longer forwards a shell to it) is just dumped to a
-	// log file; nothing needs to read or write it interactively anymore.
-	logFile, err := os.OpenFile(r.BootLogPath(vm.ID), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+// isKnownUnit reports whether systemd has any record of vm.Unit (loaded,
+// active, or otherwise) as opposed to it never having existed.
+func (s *systemdSupervisor) isKnownUnit(vm *state.VM) bool {
+	out, err := exec.Command("systemctl", "show", "-p", "LoadState", "--value", vm.Unit).Output()
 	if err != nil {
-		return nil, fmt.Errorf("open console log: %w", err)
+		return false
 	}
-	defer logFile.Close()
-	cmd.Stdout = logFile
+	return strings.TrimSpace(string(out)) != "not-found"
+}
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("jailer start: %w", err)
+func (s *systemdSupervisor) Stop(vm *state.VM) error {
+	s.r.log().Info("stopping unit", "vm", vm.ID, "unit", vm.Unit)
+	out, err := exec.Command("systemctl", "stop", vm.Unit).CombinedOutput()
+	if err != nil && s.isKnownUnit(vm) {
+		return fmt.Errorf("systemctl stop %s: %s: %w", vm.Unit, out, err)
 	}
+	return nil
+}
 
-	return cmd, nil
+func (s *systemdSupervisor) IsAlive(vm *state.VM) bool {
+	err := exec.Command("systemctl", "is-active", "--quiet", vm.Unit).Run()
+	return err == nil
+}
+
+// Wait polls systemctl show for ActiveState until it leaves
+// active/activating/deactivating, returning the terminal state string.
+func (s *systemdSupervisor) Wait(vm *state.VM) (string, error) {
+	for {
+		out, err := exec.Command("systemctl", "show", "-p", "ActiveState", "--value", vm.Unit).Output()
+		if err != nil {
+			return "", fmt.Errorf("systemctl show %s: %w", vm.Unit, err)
+		}
+		switch state := strings.TrimSpace(string(out)); state {
+		case "active", "activating", "deactivating":
+			time.Sleep(300 * time.Millisecond)
+		default:
+			return state, nil
+		}
+	}
 }
 
 func (r *Runner) Destroy(vm *state.VM) error {
@@ -302,7 +365,7 @@ func (r *Runner) Destroy(vm *state.VM) error {
 
 	time.Sleep(500 * time.Millisecond)
 
-	if err := r.killPid(vm.ID); err != nil {
+	if err := r.supervisor().Stop(vm); err != nil {
 		return err
 	}
 
@@ -312,44 +375,6 @@ func (r *Runner) Destroy(vm *state.VM) error {
 
 	r.log().Info("removing vm dir", "vm", vm.ID)
 	return os.RemoveAll(r.vmDir(vm.ID))
-}
-
-// killPid kills the process whose pid was recorded at r.pidPath(id), if any.
-// killPid kills the process whose pid was recorded at r.pidPath(id), if
-// any, and blocks until it has actually exited. That process isn't a
-// child of this one, so we poll for the pid to disappear rather than
-// os.Process.Wait.
-func (r *Runner) killPid(id string) error {
-	r.log().Info("killing process", "vm", id)
-	data, err := os.ReadFile(r.pidPath(id))
-	if err != nil {
-		return nil
-	}
-	var pid int
-	fmt.Sscanf(string(data), "%d", &pid)
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return nil
-	}
-	if err := p.Kill(); err != nil {
-		return nil
-	}
-
-	// If pid is our own child (as in tests, which launch it in-process),
-	// Wait reaps it and blocks until it's actually gone. If not, Wait
-	// fails immediately with ECHILD and we fall back to polling.
-	if _, err := p.Wait(); !errors.Is(err, syscall.ECHILD) {
-		return nil
-	}
-
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return fmt.Errorf("process %d (vm %s) did not exit within 5s of SIGKILL", pid, id)
 }
 
 // snapshotFiles are the names, relative to both a VM's chroot root/ dir and
@@ -386,7 +411,7 @@ func (r *Runner) Snapshot(vm *state.VM, snapshotDir string) error {
 		}
 	}
 
-	if err := r.killPid(vm.ID); err != nil {
+	if err := r.supervisor().Stop(vm); err != nil {
 		return err
 	}
 
@@ -411,12 +436,7 @@ func (r *Runner) Restore(vm *state.VM, snapshotDir string, attach bool) error {
 		return err
 	}
 
-	cmd, err := r.jailer().Launch(vm)
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(r.pidPath(vm.ID), []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
+	if err := r.supervisor().Launch(vm); err != nil {
 		return err
 	}
 
@@ -445,7 +465,7 @@ func (r *Runner) Restore(vm *state.VM, snapshotDir string, attach bool) error {
 		r.log().Warn("failed to notify guest agent of restore", "vm", vm.ID, "error", err)
 	}
 
-	return r.waitOrBackground(vm.ID, cmd, attach)
+	return r.waitOrBackground(vm, attach)
 }
 
 // setupRestoreChroot builds vm's chroot and copies the saved snapshot
@@ -477,15 +497,8 @@ func (r *Runner) setupRestoreChroot(vm *state.VM, snapshotDir string) error {
 	return nil
 }
 
-func (r *Runner) IsAlive(id string) bool {
-	data, err := os.ReadFile(r.pidPath(id))
-	if err != nil {
-		return false
-	}
-	var pid int
-	fmt.Sscanf(string(data), "%d", &pid)
-	_, err = os.Stat(fmt.Sprintf("/proc/%d", pid))
-	return err == nil
+func (r *Runner) IsAlive(vm *state.VM) bool {
+	return r.supervisor().IsAlive(vm)
 }
 
 // AttachConsole connects to the guest agent's interactive PTY vsock port

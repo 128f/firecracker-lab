@@ -65,7 +65,6 @@ func runSetup(cfg *Config) error {
 		{"ip", "link", "set", "br0", "up"},
 		{"sysctl", "-w", "net.ipv4.ip_forward=1"},
 		{"mkdir", "-p", "/srv/jailer/firecracker"},
-		{"mkdir", "-p", "/sys/fs/cgroup/labctl"},
 		{"groupadd", "--system", "-g", gid, "labctl-vm"},
 		{"useradd", "--system", "--no-create-home", "-u", uid, "-g", gid, "labctl-vm"},
 		{"mkdir", "-p", cfg.DataDir},

@@ -31,7 +31,7 @@ func newListCmd(cfg *Config) *cobra.Command {
 			fmt.Printf("%-8s %-8s %-16s %-6s %s\n", "ID", "TAP", "IP", "CID", "STATUS")
 			for _, v := range vms {
 				status := "stopped"
-				if r.IsAlive(v.ID) {
+				if r.IsAlive(v) {
 					status = guestStatus(r, v.ID)
 				}
 				fmt.Printf("%-8s %-8s %-16s %-6d %s\n", v.ID, v.Tap, v.IP, v.CID, status)

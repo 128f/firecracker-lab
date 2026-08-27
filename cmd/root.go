@@ -62,6 +62,7 @@ func Execute() error {
 	rootCmd.AddCommand(newImageCmd(cfg))
 	rootCmd.AddCommand(newSnapshotCmd(cfg))
 	rootCmd.AddCommand(newRestoreCmd(cfg))
+	rootCmd.AddCommand(newMigrateUnitColumnCmd(cfg))
 
 	return rootCmd.Execute()
 }

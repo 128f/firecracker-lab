@@ -17,7 +17,12 @@ type VM struct {
 	CID    int    `json:"cid"`
 	VCPUs  int    `json:"vcpus"`
 	MemMiB int    `json:"mem_mib"`
+	Unit   string `json:"unit"`
 }
+
+// UnitName returns the deterministic systemd transient-unit name (bare,
+// without a .service suffix) for a VM with the given id.
+func UnitName(id string) string { return "labctl-" + id }
 
 type Image struct {
 	ID        string `json:"id"`
@@ -49,6 +54,7 @@ CREATE TABLE IF NOT EXISTS vms (
     image_id   TEXT,
     status     TEXT NOT NULL DEFAULT 'running',
     pid        INTEGER,
+    unit       TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -151,6 +157,7 @@ func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error
 		CID:    3 + i,
 		VCPUs:  vcpus,
 		MemMiB: memMiB,
+		Unit:   UnitName(vmID(i)),
 	}
 
 	var imgID any
@@ -159,8 +166,8 @@ func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error
 	}
 
 	_, err = conn.ExecContext(ctx,
-		`INSERT INTO vms (id, tap, ip, cid, vcpus, mem_mib, image_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Tap, v.IP, v.CID, v.VCPUs, v.MemMiB, imgID,
+		`INSERT INTO vms (id, tap, ip, cid, vcpus, mem_mib, image_id, unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.Tap, v.IP, v.CID, v.VCPUs, v.MemMiB, imgID, v.Unit,
 	)
 	if err != nil {
 		return nil, err
@@ -177,8 +184,8 @@ func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error
 func (s *State) Get(id string) (*VM, error) {
 	v := &VM{}
 	err := s.db.QueryRow(
-		`SELECT id, tap, ip, cid, vcpus, mem_mib FROM vms WHERE id = ?`, id,
-	).Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB)
+		`SELECT id, tap, ip, cid, vcpus, mem_mib, unit FROM vms WHERE id = ?`, id,
+	).Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB, &v.Unit)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -190,7 +197,7 @@ func (s *State) Get(id string) (*VM, error) {
 
 // List returns all VMs.
 func (s *State) List() ([]*VM, error) {
-	rows, err := s.db.Query(`SELECT id, tap, ip, cid, vcpus, mem_mib FROM vms`)
+	rows, err := s.db.Query(`SELECT id, tap, ip, cid, vcpus, mem_mib, unit FROM vms`)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +206,7 @@ func (s *State) List() ([]*VM, error) {
 	var vms []*VM
 	for rows.Next() {
 		v := &VM{}
-		if err := rows.Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB); err != nil {
+		if err := rows.Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB, &v.Unit); err != nil {
 			return nil, err
 		}
 		vms = append(vms, v)
