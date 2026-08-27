@@ -11,16 +11,22 @@ mod transport;
 
 const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
+use boot::cmdline::parse_tcp_vsock_proxy_mappings;
 use boot::mount::{MountConfig, mount_system_paths};
 use boot::signals::{SignalSource, connect_signalfd, drain_signals};
 use scheduler::epoll::{PollConfig, Poller};
 use scheduler::timerfd::TimerDispatcher;
 use stats::{Stats, Status};
 use transport::pty_vsock::PtyVsockDispatcher;
+use transport::tcp_vsock_proxy::spawn_proxies;
 use transport::vsock::VsockDispatcher;
 
 fn main() {
     mount_system_paths(MountConfig::default()).unwrap();
+
+    // independent of the epoll reactor below
+    spawn_proxies(&parse_tcp_vsock_proxy_mappings());
+
     let sfd = connect_signalfd().unwrap();
 
     let mut vsock_dispatcher = VsockDispatcher::new().unwrap();
