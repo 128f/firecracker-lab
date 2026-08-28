@@ -5,6 +5,7 @@ use vsock::{VsockAddr, VsockListener, VsockStream};
 
 use crate::stats::Stats;
 use crate::transport::dispatch;
+use crate::transport::tcp_vsock_proxy::ProxyRegistry;
 use crate::transport::wire;
 
 // VMADDR_CID_ANY = 0xFFFFFFFF (u32::MAX) — accept from any CID
@@ -40,21 +41,27 @@ impl VsockDispatcher {
     }
 
     /// Accepts every pending connection and handles each on its own thread.
-    pub fn handle_events(&mut self, stats: &Arc<Stats>) {
+    pub fn handle_events(&mut self, stats: &Arc<Stats>, proxy_registry: &Arc<ProxyRegistry>) {
         for (stream, addr) in self.accept_connections() {
             let stats = stats.clone();
+            let proxy_registry = proxy_registry.clone();
             std::thread::spawn(move || {
-                let _ = handle_connection(stream, addr, &stats);
+                let _ = handle_connection(stream, addr, &stats, &proxy_registry);
             });
         }
     }
 }
 
-fn handle_connection(stream: VsockStream, addr: VsockAddr, stats: &Stats) -> anyhow::Result<()> {
+fn handle_connection(
+    stream: VsockStream,
+    addr: VsockAddr,
+    stats: &Stats,
+    proxy_registry: &ProxyRegistry,
+) -> anyhow::Result<()> {
     let mut handler = VsockConnectionHandler::new(stream, addr);
     let prefix = handler.read_length_prefix()?;
     let payload = handler.extract_payload(prefix)?;
-    let response = dispatch::dispatch(payload, stats)?;
+    let response = dispatch::dispatch(payload, stats, proxy_registry)?;
     handler.send_response(response)
 }
 

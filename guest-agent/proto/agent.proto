@@ -8,20 +8,37 @@ message Request {
     oneof request_type {
         StatusRequest status = 1;
         VmRestoreNotification vm_restore = 2;
+        StartTcpVsockProxy start_tcp_vsock_proxy = 3;
+        StopTcpVsockProxy stop_tcp_vsock_proxy = 4;
     }
 }
 
 message StatusRequest {
 }
 
+message StartTcpVsockProxy {
+    uint32 tcp_port = 1;
+    uint32 cid = 2;
+    uint32 vsock_port = 3;
+}
+
+message StopTcpVsockProxy {
+    uint32 tcp_port = 1;
+}
+
 message Response {
     oneof response_type {
         StatusResponse status = 1;
         Ack ack = 2;
+        Error error = 3;
     }
 }
 
 message Ack {
+}
+
+message Error {
+    string reason = 1;
 }
 
 enum HealthStatus {
