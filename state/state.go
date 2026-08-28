@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -18,6 +19,10 @@ type VM struct {
 	VCPUs  int    `json:"vcpus"`
 	MemMiB int    `json:"mem_mib"`
 	Unit   string `json:"unit"`
+	// Ports are the guest-initiated vsock ports currently forwarded to the
+	// same-numbered host TCP port via a socat systemd unit (see
+	// vm.Runner.LaunchPortForwards). Managed by `labctl ports`.
+	Ports []int `json:"ports"`
 }
 
 // UnitName returns the deterministic systemd transient-unit name (bare,
@@ -37,6 +42,9 @@ type Snapshot struct {
 	Dir    string `json:"dir"`
 	VCPUs  int    `json:"vcpus"`
 	MemMiB int    `json:"mem_mib"`
+	// Ports are the forwarded ports captured from the source VM at
+	// snapshot time, so Restore can carry them over to the new VM.
+	Ports []int `json:"ports"`
 }
 
 type State struct {
@@ -55,6 +63,7 @@ CREATE TABLE IF NOT EXISTS vms (
     status     TEXT NOT NULL DEFAULT 'running',
     pid        INTEGER,
     unit       TEXT,
+    ports      TEXT NOT NULL DEFAULT '[]',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,6 +81,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     dir        TEXT NOT NULL,
     vcpus      INTEGER NOT NULL,
     mem_mib    INTEGER NOT NULL,
+    ports      TEXT NOT NULL DEFAULT '[]',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -110,7 +120,7 @@ func (s *State) Close() error {
 // AllocateAndInsert finds the lowest unused index and inserts the new VM
 // row in a single BEGIN IMMEDIATE transaction, closing the race between
 // "find a free slot" and "claim it" across concurrent processes.
-func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error) {
+func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string, ports []int) (*VM, error) {
 	ctx := context.Background()
 
 	// database/sql's Tx always issues a plain "BEGIN" (deferred), which
@@ -150,6 +160,9 @@ func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error
 		return nil, fmt.Errorf("no available slots")
 	}
 
+	if ports == nil {
+		ports = []int{}
+	}
 	v := &VM{
 		ID:     vmID(i),
 		Tap:    tapName(i),
@@ -158,6 +171,7 @@ func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error
 		VCPUs:  vcpus,
 		MemMiB: memMiB,
 		Unit:   UnitName(vmID(i)),
+		Ports:  ports,
 	}
 
 	var imgID any
@@ -165,9 +179,14 @@ func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error
 		imgID = imageID
 	}
 
+	portsJSON, err := json.Marshal(v.Ports)
+	if err != nil {
+		return nil, err
+	}
+
 	_, err = conn.ExecContext(ctx,
-		`INSERT INTO vms (id, tap, ip, cid, vcpus, mem_mib, image_id, unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Tap, v.IP, v.CID, v.VCPUs, v.MemMiB, imgID, v.Unit,
+		`INSERT INTO vms (id, tap, ip, cid, vcpus, mem_mib, image_id, unit, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.Tap, v.IP, v.CID, v.VCPUs, v.MemMiB, imgID, v.Unit, string(portsJSON),
 	)
 	if err != nil {
 		return nil, err
@@ -183,21 +202,25 @@ func (s *State) AllocateAndInsert(vcpus, memMiB int, imageID string) (*VM, error
 // Get returns the VM with the given id.
 func (s *State) Get(id string) (*VM, error) {
 	v := &VM{}
+	var portsJSON string
 	err := s.db.QueryRow(
-		`SELECT id, tap, ip, cid, vcpus, mem_mib, unit FROM vms WHERE id = ?`, id,
-	).Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB, &v.Unit)
+		`SELECT id, tap, ip, cid, vcpus, mem_mib, unit, ports FROM vms WHERE id = ?`, id,
+	).Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB, &v.Unit, &portsJSON)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	if err := json.Unmarshal([]byte(portsJSON), &v.Ports); err != nil {
+		return nil, fmt.Errorf("unmarshal ports for %s: %w", id, err)
+	}
 	return v, nil
 }
 
 // List returns all VMs.
 func (s *State) List() ([]*VM, error) {
-	rows, err := s.db.Query(`SELECT id, tap, ip, cid, vcpus, mem_mib, unit FROM vms`)
+	rows, err := s.db.Query(`SELECT id, tap, ip, cid, vcpus, mem_mib, unit, ports FROM vms`)
 	if err != nil {
 		return nil, err
 	}
@@ -206,8 +229,12 @@ func (s *State) List() ([]*VM, error) {
 	var vms []*VM
 	for rows.Next() {
 		v := &VM{}
-		if err := rows.Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB, &v.Unit); err != nil {
+		var portsJSON string
+		if err := rows.Scan(&v.ID, &v.Tap, &v.IP, &v.CID, &v.VCPUs, &v.MemMiB, &v.Unit, &portsJSON); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(portsJSON), &v.Ports); err != nil {
+			return nil, fmt.Errorf("unmarshal ports for %s: %w", v.ID, err)
 		}
 		vms = append(vms, v)
 	}
@@ -217,6 +244,20 @@ func (s *State) List() ([]*VM, error) {
 // Remove deletes the VM with the given id.
 func (s *State) Remove(id string) error {
 	_, err := s.db.Exec(`DELETE FROM vms WHERE id = ?`, id)
+	return err
+}
+
+// SetPorts persists the full set of forwarded ports for the VM with the
+// given id, replacing whatever was there before.
+func (s *State) SetPorts(id string, ports []int) error {
+	if ports == nil {
+		ports = []int{}
+	}
+	data, err := json.Marshal(ports)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE vms SET ports = ? WHERE id = ?`, string(data), id)
 	return err
 }
 
@@ -288,11 +329,18 @@ func (s *State) ListImages() ([]*Image, error) {
 }
 
 // InsertSnapshot records a newly-created snapshot.
-func (s *State) InsertSnapshot(name, dir string, vcpus, memMiB int) (*Snapshot, error) {
-	snap := &Snapshot{ID: uuid.NewString(), Name: name, Dir: dir, VCPUs: vcpus, MemMiB: memMiB}
-	_, err := s.db.Exec(
-		`INSERT INTO snapshots (id, name, dir, vcpus, mem_mib) VALUES (?, ?, ?, ?, ?)`,
-		snap.ID, snap.Name, snap.Dir, snap.VCPUs, snap.MemMiB,
+func (s *State) InsertSnapshot(name, dir string, vcpus, memMiB int, ports []int) (*Snapshot, error) {
+	if ports == nil {
+		ports = []int{}
+	}
+	snap := &Snapshot{ID: uuid.NewString(), Name: name, Dir: dir, VCPUs: vcpus, MemMiB: memMiB, Ports: ports}
+	portsJSON, err := json.Marshal(snap.Ports)
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO snapshots (id, name, dir, vcpus, mem_mib, ports) VALUES (?, ?, ?, ?, ?, ?)`,
+		snap.ID, snap.Name, snap.Dir, snap.VCPUs, snap.MemMiB, string(portsJSON),
 	)
 	if err != nil {
 		return nil, err
@@ -302,17 +350,21 @@ func (s *State) InsertSnapshot(name, dir string, vcpus, memMiB int) (*Snapshot, 
 
 // GetSnapshotByName returns the snapshot with the given name.
 func (s *State) GetSnapshotByName(name string) (*Snapshot, error) {
-	return s.scanSnapshot(s.db.QueryRow(`SELECT id, name, dir, vcpus, mem_mib FROM snapshots WHERE name = ?`, name))
+	return s.scanSnapshot(s.db.QueryRow(`SELECT id, name, dir, vcpus, mem_mib, ports FROM snapshots WHERE name = ?`, name))
 }
 
 func (s *State) scanSnapshot(row *sql.Row) (*Snapshot, error) {
 	snap := &Snapshot{}
-	err := row.Scan(&snap.ID, &snap.Name, &snap.Dir, &snap.VCPUs, &snap.MemMiB)
+	var portsJSON string
+	err := row.Scan(&snap.ID, &snap.Name, &snap.Dir, &snap.VCPUs, &snap.MemMiB, &portsJSON)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if err := json.Unmarshal([]byte(portsJSON), &snap.Ports); err != nil {
+		return nil, fmt.Errorf("unmarshal ports for snapshot %s: %w", snap.Name, err)
 	}
 	return snap, nil
 }
@@ -325,7 +377,7 @@ func (s *State) DeleteSnapshot(id string) error {
 
 // ListSnapshots returns all saved snapshots.
 func (s *State) ListSnapshots() ([]*Snapshot, error) {
-	rows, err := s.db.Query(`SELECT id, name, dir, vcpus, mem_mib FROM snapshots`)
+	rows, err := s.db.Query(`SELECT id, name, dir, vcpus, mem_mib, ports FROM snapshots`)
 	if err != nil {
 		return nil, err
 	}
@@ -334,8 +386,12 @@ func (s *State) ListSnapshots() ([]*Snapshot, error) {
 	var snaps []*Snapshot
 	for rows.Next() {
 		snap := &Snapshot{}
-		if err := rows.Scan(&snap.ID, &snap.Name, &snap.Dir, &snap.VCPUs, &snap.MemMiB); err != nil {
+		var portsJSON string
+		if err := rows.Scan(&snap.ID, &snap.Name, &snap.Dir, &snap.VCPUs, &snap.MemMiB, &portsJSON); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(portsJSON), &snap.Ports); err != nil {
+			return nil, fmt.Errorf("unmarshal ports for snapshot %s: %w", snap.Name, err)
 		}
 		snaps = append(snaps, snap)
 	}

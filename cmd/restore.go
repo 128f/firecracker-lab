@@ -37,7 +37,7 @@ func newRestoreCmd(cfg *Config) *cobra.Command {
 				return fmt.Errorf("unknown snapshot: %s (see `labctl snapshot list`)", name)
 			}
 
-			v, err := s.AllocateAndInsert(snap.VCPUs, snap.MemMiB, "")
+			v, err := s.AllocateAndInsert(snap.VCPUs, snap.MemMiB, "", snap.Ports)
 			if err != nil {
 				return err
 			}

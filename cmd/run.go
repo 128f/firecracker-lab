@@ -45,7 +45,7 @@ func newRunCmd(cfg *Config) *cobra.Command {
 			}
 
 			for range flagCount {
-				v, err := s.AllocateAndInsert(flagVCPUs, flagMemMiB, img.ID)
+				v, err := s.AllocateAndInsert(flagVCPUs, flagMemMiB, img.ID, nil)
 				if err != nil {
 					return err
 				}

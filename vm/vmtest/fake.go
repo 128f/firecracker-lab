@@ -206,6 +206,50 @@ func (f *FakeSupervisor) LaunchedProcess(vm *state.VM) *exec.Cmd {
 	return f.process(vm)
 }
 
+// FakePortForwarder is a vm.PortForwarder that records calls without
+// shelling out to systemd-run/systemctl/socat.
+type FakePortForwarder struct {
+	mu    sync.Mutex
+	alive map[string]bool // keyed by "<vmID>:<port>"
+	Calls []string
+}
+
+func key(vmID string, port int) string {
+	return fmt.Sprintf("%s:%d", vmID, port)
+}
+
+func (f *FakePortForwarder) Launch(vm *state.VM, port int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.alive == nil {
+		f.alive = make(map[string]bool)
+	}
+	f.alive[key(vm.ID, port)] = true
+	f.Calls = append(f.Calls, fmt.Sprintf("launch:%s:%d", vm.ID, port))
+	return nil
+}
+
+func (f *FakePortForwarder) Stop(vmID string, port int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.alive, key(vmID, port))
+	f.Calls = append(f.Calls, fmt.Sprintf("stop:%s:%d", vmID, port))
+	return nil
+}
+
+func (f *FakePortForwarder) Restart(vmID string, port int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Calls = append(f.Calls, fmt.Sprintf("restart:%s:%d", vmID, port))
+	return nil
+}
+
+func (f *FakePortForwarder) IsAlive(vmID string, port int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.alive[key(vmID, port)]
+}
+
 // NoopNetworkProvisioner is a vm.NetworkProvisioner that records calls
 // without shelling out to `ip`.
 type NoopNetworkProvisioner struct {

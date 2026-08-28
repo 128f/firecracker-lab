@@ -36,6 +36,7 @@ type Runner struct {
 	Logger         *slog.Logger
 	Net            NetworkProvisioner // nil => real iproute2 implementation
 	Supervisor     VMSupervisor       // nil => real systemd-run/systemctl implementation
+	Forwarder      PortForwarder      // nil => real systemd-run/systemctl implementation
 }
 
 // NetworkProvisioner sets up and tears down the tap device for a VM.
@@ -64,6 +65,25 @@ type VMSupervisor interface {
 	IsAlive(vm *state.VM) bool
 }
 
+// PortForwarder starts and stops the socat process that bridges a single
+// guest-initiated vsock port to a host TCP port, each running under its
+// own transient, deterministically-named systemd unit — the same
+// systemd-run/systemctl mechanism VMSupervisor uses for the VM itself.
+type PortForwarder interface {
+	// Launch starts forwarding vm's vsock port to 127.0.0.1:port, binding
+	// the forwarder's unit to vm.Unit so systemd stops it automatically if
+	// the VM unit dies. Idempotent: re-launching an already-running
+	// forward is not an error.
+	Launch(vm *state.VM, port int) error
+	// Stop stops the forwarder for vmID/port. A no-op, returning nil, if
+	// no such unit exists.
+	Stop(vmID string, port int) error
+	// Restart bounces the forwarder unit for vmID/port in place.
+	Restart(vmID string, port int) error
+	// IsAlive reports whether the forwarder unit for vmID/port is active.
+	IsAlive(vmID string, port int) bool
+}
+
 func (r *Runner) net() NetworkProvisioner {
 	if r.Net != nil {
 		return r.Net
@@ -76,6 +96,13 @@ func (r *Runner) supervisor() VMSupervisor {
 		return r.Supervisor
 	}
 	return &systemdSupervisor{r: r}
+}
+
+func (r *Runner) portForwarder() PortForwarder {
+	if r.Forwarder != nil {
+		return r.Forwarder
+	}
+	return &systemdPortForwarder{r: r}
 }
 
 func (r *Runner) log() *slog.Logger {
@@ -122,6 +149,10 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 	}
 
 	if err := r.bootVM(vm, sock); err != nil {
+		return err
+	}
+
+	if err := r.LaunchPortForwards(vm); err != nil {
 		return err
 	}
 
@@ -318,10 +349,10 @@ func (s *systemdSupervisor) Launch(vm *state.VM) error {
 	return nil
 }
 
-// isKnownUnit reports whether systemd has any record of vm.Unit (loaded,
+// isKnownUnit reports whether systemd has any record of unit (loaded,
 // active, or otherwise) as opposed to it never having existed.
-func (s *systemdSupervisor) isKnownUnit(vm *state.VM) bool {
-	out, err := exec.Command("systemctl", "show", "-p", "LoadState", "--value", vm.Unit).Output()
+func isKnownUnit(unit string) bool {
+	out, err := exec.Command("systemctl", "show", "-p", "LoadState", "--value", unit).Output()
 	if err != nil {
 		return false
 	}
@@ -331,7 +362,7 @@ func (s *systemdSupervisor) isKnownUnit(vm *state.VM) bool {
 func (s *systemdSupervisor) Stop(vm *state.VM) error {
 	s.r.log().Info("stopping unit", "vm", vm.ID, "unit", vm.Unit)
 	out, err := exec.Command("systemctl", "stop", vm.Unit).CombinedOutput()
-	if err != nil && s.isKnownUnit(vm) {
+	if err != nil && isKnownUnit(vm.Unit) {
 		return fmt.Errorf("systemctl stop %s: %s: %w", vm.Unit, out, err)
 	}
 	return nil
@@ -359,6 +390,103 @@ func (s *systemdSupervisor) Wait(vm *state.VM) (string, error) {
 	}
 }
 
+// socatUnitName returns the deterministic transient-unit name (bare,
+// without a .service suffix) for the socat forwarder bound to vmID/port.
+func socatUnitName(vmID string, port int) string {
+	return fmt.Sprintf("%s-socat-%d", state.UnitName(vmID), port)
+}
+
+// systemdPortForwarder runs socat as a transient systemd service unit,
+// bridging a VM's guest-initiated vsock port to a host TCP port, managed
+// via systemd-run/systemctl exactly like systemdSupervisor manages the
+// VM's own unit.
+type systemdPortForwarder struct{ r *Runner }
+
+func (f *systemdPortForwarder) Launch(vm *state.VM, port int) error {
+	r := f.r
+	unit := socatUnitName(vm.ID, port)
+	sockPath := fmt.Sprintf("%s_%d", r.VsockPath(vm.ID), port)
+
+	args := []string{
+		"--unit", unit,
+		"--collect",
+		"--property", "BindsTo=" + vm.Unit + ".service",
+		"--property", "After=" + vm.Unit + ".service",
+		"--",
+		"socat",
+		fmt.Sprintf("UNIX-LISTEN:%s,fork,unlink-early", sockPath),
+		fmt.Sprintf("TCP:127.0.0.1:%d", port),
+	}
+
+	r.log().Info("starting port forward", "vm", vm.ID, "port", port, "unit", unit)
+	if out, err := exec.Command("systemd-run", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("systemd-run (socat %s port %d): %s: %w", vm.ID, port, out, err)
+	}
+	return nil
+}
+
+func (f *systemdPortForwarder) Stop(vmID string, port int) error {
+	unit := socatUnitName(vmID, port)
+	f.r.log().Info("stopping port forward", "vm", vmID, "port", port, "unit", unit)
+	out, err := exec.Command("systemctl", "stop", unit).CombinedOutput()
+	if err != nil && isKnownUnit(unit) {
+		return fmt.Errorf("systemctl stop %s: %s: %w", unit, out, err)
+	}
+	return nil
+}
+
+func (f *systemdPortForwarder) Restart(vmID string, port int) error {
+	unit := socatUnitName(vmID, port)
+	f.r.log().Info("restarting port forward", "vm", vmID, "port", port, "unit", unit)
+	if out, err := exec.Command("systemctl", "restart", unit).CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl restart %s: %s: %w", unit, out, err)
+	}
+	return nil
+}
+
+func (f *systemdPortForwarder) IsAlive(vmID string, port int) bool {
+	unit := socatUnitName(vmID, port)
+	err := exec.Command("systemctl", "is-active", "--quiet", unit).Run()
+	return err == nil
+}
+
+// LaunchPortForwards starts a socat forwarder for each of vm.Ports.
+func (r *Runner) LaunchPortForwards(vm *state.VM) error {
+	for _, port := range vm.Ports {
+		if err := r.portForwarder().Launch(vm, port); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// StopPortForwards stops the socat forwarder for each of vm.Ports.
+func (r *Runner) StopPortForwards(vm *state.VM) error {
+	for _, port := range vm.Ports {
+		if err := r.portForwarder().Stop(vm.ID, port); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RestartPortForwards restarts the socat forwarder unit for each of
+// vm.Ports in place, without changing which ports are forwarded.
+func (r *Runner) RestartPortForwards(vm *state.VM) error {
+	for _, port := range vm.Ports {
+		if err := r.portForwarder().Restart(vm.ID, port); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PortForwardAlive reports whether the socat forwarder unit for vmID/port
+// is currently active.
+func (r *Runner) PortForwardAlive(vmID string, port int) bool {
+	return r.portForwarder().IsAlive(vmID, port)
+}
+
 func (r *Runner) Destroy(vm *state.VM) error {
 	r.log().Info("sending halt signal via API", "vm", vm.ID)
 	_ = apiPut(r.SocketPath(vm.ID), "/actions", map[string]string{"action_type": "SendCtrlAltDel"})
@@ -366,6 +494,10 @@ func (r *Runner) Destroy(vm *state.VM) error {
 	time.Sleep(500 * time.Millisecond)
 
 	if err := r.supervisor().Stop(vm); err != nil {
+		return err
+	}
+
+	if err := r.StopPortForwards(vm); err != nil {
 		return err
 	}
 
@@ -412,6 +544,10 @@ func (r *Runner) Snapshot(vm *state.VM, snapshotDir string) error {
 	}
 
 	if err := r.supervisor().Stop(vm); err != nil {
+		return err
+	}
+
+	if err := r.StopPortForwards(vm); err != nil {
 		return err
 	}
 
@@ -463,6 +599,10 @@ func (r *Runner) Restore(vm *state.VM, snapshotDir string, attach bool) error {
 
 	if err := r.NotifyRestore(vm.ID); err != nil {
 		r.log().Warn("failed to notify guest agent of restore", "vm", vm.ID, "error", err)
+	}
+
+	if err := r.LaunchPortForwards(vm); err != nil {
+		return err
 	}
 
 	return r.waitOrBackground(vm, attach)

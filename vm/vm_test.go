@@ -143,6 +143,31 @@ func TestRunHappyPath(t *testing.T) {
 	}
 }
 
+func TestRunLaunchesPortForwards(t *testing.T) {
+	labDir := tempLabDir(t)
+	writeFixtureImages(t, labDir)
+
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+	vm.Ports = []int{11434}
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
+	r.Net = &vmtest.NoopNetworkProvisioner{}
+	fwd := &vmtest.FakePortForwarder{}
+	r.Forwarder = fwd
+
+	if err := r.Run(vm, filepath.Join(labDir, "rootfs.ext4"), false); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	killTestProcess(t, r, vm)
+
+	if !fwd.IsAlive(vm.ID, 11434) {
+		t.Errorf("port forward for %s:11434 not launched", vm.ID)
+	}
+}
+
 func TestRunErrorPathStopsAtFailure(t *testing.T) {
 	labDir := tempLabDir(t)
 	writeFixtureImages(t, labDir)
@@ -212,6 +237,34 @@ func TestDestroy(t *testing.T) {
 
 	if _, err := os.Stat(r.vmDir(vm.ID)); !os.IsNotExist(err) {
 		t.Errorf("vmDir still exists after Destroy: err = %v", err)
+	}
+}
+
+func TestDestroyStopsPortForwards(t *testing.T) {
+	labDir := tempLabDir(t)
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+	vm.Ports = []int{11434}
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	if err := api.Start(); err != nil {
+		t.Fatalf("api.Start: %v", err)
+	}
+	r.Net = &vmtest.NoopNetworkProvisioner{}
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
+	fwd := &vmtest.FakePortForwarder{}
+	r.Forwarder = fwd
+	if err := fwd.Launch(vm, 11434); err != nil {
+		t.Fatalf("seed Launch: %v", err)
+	}
+
+	if err := r.Destroy(vm); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+
+	if fwd.IsAlive(vm.ID, 11434) {
+		t.Errorf("port forward for %s:11434 still alive after Destroy", vm.ID)
 	}
 }
 
@@ -456,6 +509,40 @@ func TestRestoreHappyPath(t *testing.T) {
 
 	if launcher.LaunchedProcess(vm) == nil {
 		t.Error("no process launched")
+	}
+}
+
+func TestRestoreLaunchesPortForwards(t *testing.T) {
+	labDir := tempLabDir(t)
+
+	snapDir := filepath.Join(labDir, "snapshots", "mysnap")
+	if err := os.MkdirAll(snapDir, 0755); err != nil {
+		t.Fatalf("MkdirAll snapDir: %v", err)
+	}
+	for _, name := range []string{"snapshot.bin", "mem.bin", "rootfs.ext4"} {
+		if err := os.WriteFile(filepath.Join(snapDir, name), []byte(name), 0644); err != nil {
+			t.Fatalf("write fixture %s: %v", name, err)
+		}
+	}
+
+	r := newTestRunner(t, labDir)
+	vm := fixtureVM()
+	vm.Ports = []int{11434}
+
+	api := vmtest.NewFakeFirecracker(r.SocketPath(vm.ID))
+	defer api.Close()
+	r.Supervisor = &vmtest.FakeSupervisor{API: api}
+	r.Net = &vmtest.NoopNetworkProvisioner{}
+	fwd := &vmtest.FakePortForwarder{}
+	r.Forwarder = fwd
+
+	if err := r.Restore(vm, snapDir, false); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	killTestProcess(t, r, vm)
+
+	if !fwd.IsAlive(vm.ID, 11434) {
+		t.Errorf("port forward for %s:11434 not launched", vm.ID)
 	}
 }
 

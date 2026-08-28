@@ -63,6 +63,8 @@ func Execute() error {
 	rootCmd.AddCommand(newSnapshotCmd(cfg))
 	rootCmd.AddCommand(newRestoreCmd(cfg))
 	rootCmd.AddCommand(newMigrateUnitColumnCmd(cfg))
+	rootCmd.AddCommand(newMigratePortsColumnCmd(cfg))
+	rootCmd.AddCommand(newPortsCmd(cfg))
 
 	return rootCmd.Execute()
 }

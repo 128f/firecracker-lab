@@ -23,7 +23,7 @@ func TestAllocateAndInsertConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			vms[i], errs[i] = s.AllocateAndInsert(1, 256, "")
+			vms[i], errs[i] = s.AllocateAndInsert(1, 256, "", nil)
 		}(i)
 	}
 	wg.Wait()
@@ -73,11 +73,11 @@ func TestAllocateReusesGapAfterRemove(t *testing.T) {
 	}
 	defer s.Close()
 
-	v0, err := s.AllocateAndInsert(1, 256, "")
+	v0, err := s.AllocateAndInsert(1, 256, "", nil)
 	if err != nil {
 		t.Fatalf("AllocateAndInsert: %v", err)
 	}
-	v1, err := s.AllocateAndInsert(1, 256, "")
+	v1, err := s.AllocateAndInsert(1, 256, "", nil)
 	if err != nil {
 		t.Fatalf("AllocateAndInsert: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestAllocateReusesGapAfterRemove(t *testing.T) {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	v2, err := s.AllocateAndInsert(1, 256, "")
+	v2, err := s.AllocateAndInsert(1, 256, "", nil)
 	if err != nil {
 		t.Fatalf("AllocateAndInsert: %v", err)
 	}

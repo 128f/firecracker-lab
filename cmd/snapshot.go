@@ -50,7 +50,7 @@ func newSnapshotCmd(cfg *Config) *cobra.Command {
 			if err := r.Snapshot(v, snapDir); err != nil {
 				return fmt.Errorf("snapshot %s: %w", id, err)
 			}
-			if _, err := s.InsertSnapshot(name, snapDir, v.VCPUs, v.MemMiB); err != nil {
+			if _, err := s.InsertSnapshot(name, snapDir, v.VCPUs, v.MemMiB, v.Ports); err != nil {
 				return err
 			}
 			return s.Remove(id)
