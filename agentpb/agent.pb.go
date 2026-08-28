@@ -73,6 +73,8 @@ type Request struct {
 	//
 	//	*Request_Status
 	//	*Request_VmRestore
+	//	*Request_StartTcpVsockProxy
+	//	*Request_StopTcpVsockProxy
 	RequestType   isRequest_RequestType `protobuf_oneof:"request_type"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -133,6 +135,24 @@ func (x *Request) GetVmRestore() *VmRestoreNotification {
 	return nil
 }
 
+func (x *Request) GetStartTcpVsockProxy() *StartTcpVsockProxy {
+	if x != nil {
+		if x, ok := x.RequestType.(*Request_StartTcpVsockProxy); ok {
+			return x.StartTcpVsockProxy
+		}
+	}
+	return nil
+}
+
+func (x *Request) GetStopTcpVsockProxy() *StopTcpVsockProxy {
+	if x != nil {
+		if x, ok := x.RequestType.(*Request_StopTcpVsockProxy); ok {
+			return x.StopTcpVsockProxy
+		}
+	}
+	return nil
+}
+
 type isRequest_RequestType interface {
 	isRequest_RequestType()
 }
@@ -145,9 +165,21 @@ type Request_VmRestore struct {
 	VmRestore *VmRestoreNotification `protobuf:"bytes,2,opt,name=vm_restore,json=vmRestore,proto3,oneof"`
 }
 
+type Request_StartTcpVsockProxy struct {
+	StartTcpVsockProxy *StartTcpVsockProxy `protobuf:"bytes,3,opt,name=start_tcp_vsock_proxy,json=startTcpVsockProxy,proto3,oneof"`
+}
+
+type Request_StopTcpVsockProxy struct {
+	StopTcpVsockProxy *StopTcpVsockProxy `protobuf:"bytes,4,opt,name=stop_tcp_vsock_proxy,json=stopTcpVsockProxy,proto3,oneof"`
+}
+
 func (*Request_Status) isRequest_RequestType() {}
 
 func (*Request_VmRestore) isRequest_RequestType() {}
+
+func (*Request_StartTcpVsockProxy) isRequest_RequestType() {}
+
+func (*Request_StopTcpVsockProxy) isRequest_RequestType() {}
 
 type StatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -185,12 +217,117 @@ func (*StatusRequest) Descriptor() ([]byte, []int) {
 	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{1}
 }
 
+type StartTcpVsockProxy struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TcpPort       uint32                 `protobuf:"varint,1,opt,name=tcp_port,json=tcpPort,proto3" json:"tcp_port,omitempty"`
+	Cid           uint32                 `protobuf:"varint,2,opt,name=cid,proto3" json:"cid,omitempty"`
+	VsockPort     uint32                 `protobuf:"varint,3,opt,name=vsock_port,json=vsockPort,proto3" json:"vsock_port,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartTcpVsockProxy) Reset() {
+	*x = StartTcpVsockProxy{}
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartTcpVsockProxy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartTcpVsockProxy) ProtoMessage() {}
+
+func (x *StartTcpVsockProxy) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartTcpVsockProxy.ProtoReflect.Descriptor instead.
+func (*StartTcpVsockProxy) Descriptor() ([]byte, []int) {
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *StartTcpVsockProxy) GetTcpPort() uint32 {
+	if x != nil {
+		return x.TcpPort
+	}
+	return 0
+}
+
+func (x *StartTcpVsockProxy) GetCid() uint32 {
+	if x != nil {
+		return x.Cid
+	}
+	return 0
+}
+
+func (x *StartTcpVsockProxy) GetVsockPort() uint32 {
+	if x != nil {
+		return x.VsockPort
+	}
+	return 0
+}
+
+type StopTcpVsockProxy struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TcpPort       uint32                 `protobuf:"varint,1,opt,name=tcp_port,json=tcpPort,proto3" json:"tcp_port,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopTcpVsockProxy) Reset() {
+	*x = StopTcpVsockProxy{}
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopTcpVsockProxy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopTcpVsockProxy) ProtoMessage() {}
+
+func (x *StopTcpVsockProxy) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopTcpVsockProxy.ProtoReflect.Descriptor instead.
+func (*StopTcpVsockProxy) Descriptor() ([]byte, []int) {
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *StopTcpVsockProxy) GetTcpPort() uint32 {
+	if x != nil {
+		return x.TcpPort
+	}
+	return 0
+}
+
 type Response struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to ResponseType:
 	//
 	//	*Response_Status
 	//	*Response_Ack
+	//	*Response_Error
 	ResponseType  isResponse_ResponseType `protobuf_oneof:"response_type"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -198,7 +335,7 @@ type Response struct {
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[2]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -210,7 +347,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[2]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -223,7 +360,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{2}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Response) GetResponseType() isResponse_ResponseType {
@@ -251,6 +388,15 @@ func (x *Response) GetAck() *Ack {
 	return nil
 }
 
+func (x *Response) GetError() *Error {
+	if x != nil {
+		if x, ok := x.ResponseType.(*Response_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
 type isResponse_ResponseType interface {
 	isResponse_ResponseType()
 }
@@ -263,9 +409,15 @@ type Response_Ack struct {
 	Ack *Ack `protobuf:"bytes,2,opt,name=ack,proto3,oneof"`
 }
 
+type Response_Error struct {
+	Error *Error `protobuf:"bytes,3,opt,name=error,proto3,oneof"`
+}
+
 func (*Response_Status) isResponse_ResponseType() {}
 
 func (*Response_Ack) isResponse_ResponseType() {}
+
+func (*Response_Error) isResponse_ResponseType() {}
 
 type Ack struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -275,7 +427,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[3]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -287,7 +439,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[3]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -300,7 +452,51 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{3}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{5}
+}
+
+type Error struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Error) Reset() {
+	*x = Error{}
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Error) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Error) ProtoMessage() {}
+
+func (x *Error) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Error.ProtoReflect.Descriptor instead.
+func (*Error) Descriptor() ([]byte, []int) {
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Error) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
 }
 
 type StatusResponse struct {
@@ -315,7 +511,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[4]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -327,7 +523,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[4]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -340,7 +536,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{4}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StatusResponse) GetStatus() HealthStatus {
@@ -380,7 +576,7 @@ type VmRestoreNotification struct {
 
 func (x *VmRestoreNotification) Reset() {
 	*x = VmRestoreNotification{}
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[5]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -392,7 +588,7 @@ func (x *VmRestoreNotification) String() string {
 func (*VmRestoreNotification) ProtoMessage() {}
 
 func (x *VmRestoreNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_agent_proto_agent_proto_msgTypes[5]
+	mi := &file_guest_agent_proto_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -405,7 +601,7 @@ func (x *VmRestoreNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VmRestoreNotification.ProtoReflect.Descriptor instead.
 func (*VmRestoreNotification) Descriptor() ([]byte, []int) {
-	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{5}
+	return file_guest_agent_proto_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *VmRestoreNotification) GetRestoredAt() uint64 {
@@ -419,19 +615,31 @@ var File_guest_agent_proto_agent_proto protoreflect.FileDescriptor
 
 const file_guest_agent_proto_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1dguest-agent/proto/agent.proto\x12\x05agent\"\x88\x01\n" +
+	"\x1dguest-agent/proto/agent.proto\x12\x05agent\"\xa5\x02\n" +
 	"\aRequest\x12.\n" +
 	"\x06status\x18\x01 \x01(\v2\x14.agent.StatusRequestH\x00R\x06status\x12=\n" +
 	"\n" +
-	"vm_restore\x18\x02 \x01(\v2\x1c.agent.VmRestoreNotificationH\x00R\tvmRestoreB\x0e\n" +
+	"vm_restore\x18\x02 \x01(\v2\x1c.agent.VmRestoreNotificationH\x00R\tvmRestore\x12N\n" +
+	"\x15start_tcp_vsock_proxy\x18\x03 \x01(\v2\x19.agent.StartTcpVsockProxyH\x00R\x12startTcpVsockProxy\x12K\n" +
+	"\x14stop_tcp_vsock_proxy\x18\x04 \x01(\v2\x18.agent.StopTcpVsockProxyH\x00R\x11stopTcpVsockProxyB\x0e\n" +
 	"\frequest_type\"\x0f\n" +
-	"\rStatusRequest\"l\n" +
+	"\rStatusRequest\"`\n" +
+	"\x12StartTcpVsockProxy\x12\x19\n" +
+	"\btcp_port\x18\x01 \x01(\rR\atcpPort\x12\x10\n" +
+	"\x03cid\x18\x02 \x01(\rR\x03cid\x12\x1d\n" +
+	"\n" +
+	"vsock_port\x18\x03 \x01(\rR\tvsockPort\".\n" +
+	"\x11StopTcpVsockProxy\x12\x19\n" +
+	"\btcp_port\x18\x01 \x01(\rR\atcpPort\"\x92\x01\n" +
 	"\bResponse\x12/\n" +
 	"\x06status\x18\x01 \x01(\v2\x15.agent.StatusResponseH\x00R\x06status\x12\x1e\n" +
 	"\x03ack\x18\x02 \x01(\v2\n" +
-	".agent.AckH\x00R\x03ackB\x0f\n" +
+	".agent.AckH\x00R\x03ack\x12$\n" +
+	"\x05error\x18\x03 \x01(\v2\f.agent.ErrorH\x00R\x05errorB\x0f\n" +
 	"\rresponse_type\"\x05\n" +
-	"\x03Ack\"\xa3\x01\n" +
+	"\x03Ack\"\x1f\n" +
+	"\x05Error\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xa3\x01\n" +
 	"\x0eStatusResponse\x12+\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x13.agent.HealthStatusR\x06status\x12\x17\n" +
 	"\acpu_pct\x18\x02 \x01(\rR\x06cpuPct\x12.\n" +
@@ -457,27 +665,33 @@ func file_guest_agent_proto_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_guest_agent_proto_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_guest_agent_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_guest_agent_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_guest_agent_proto_agent_proto_goTypes = []any{
 	(HealthStatus)(0),             // 0: agent.HealthStatus
 	(*Request)(nil),               // 1: agent.Request
 	(*StatusRequest)(nil),         // 2: agent.StatusRequest
-	(*Response)(nil),              // 3: agent.Response
-	(*Ack)(nil),                   // 4: agent.Ack
-	(*StatusResponse)(nil),        // 5: agent.StatusResponse
-	(*VmRestoreNotification)(nil), // 6: agent.VmRestoreNotification
+	(*StartTcpVsockProxy)(nil),    // 3: agent.StartTcpVsockProxy
+	(*StopTcpVsockProxy)(nil),     // 4: agent.StopTcpVsockProxy
+	(*Response)(nil),              // 5: agent.Response
+	(*Ack)(nil),                   // 6: agent.Ack
+	(*Error)(nil),                 // 7: agent.Error
+	(*StatusResponse)(nil),        // 8: agent.StatusResponse
+	(*VmRestoreNotification)(nil), // 9: agent.VmRestoreNotification
 }
 var file_guest_agent_proto_agent_proto_depIdxs = []int32{
 	2, // 0: agent.Request.status:type_name -> agent.StatusRequest
-	6, // 1: agent.Request.vm_restore:type_name -> agent.VmRestoreNotification
-	5, // 2: agent.Response.status:type_name -> agent.StatusResponse
-	4, // 3: agent.Response.ack:type_name -> agent.Ack
-	0, // 4: agent.StatusResponse.status:type_name -> agent.HealthStatus
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	9, // 1: agent.Request.vm_restore:type_name -> agent.VmRestoreNotification
+	3, // 2: agent.Request.start_tcp_vsock_proxy:type_name -> agent.StartTcpVsockProxy
+	4, // 3: agent.Request.stop_tcp_vsock_proxy:type_name -> agent.StopTcpVsockProxy
+	8, // 4: agent.Response.status:type_name -> agent.StatusResponse
+	6, // 5: agent.Response.ack:type_name -> agent.Ack
+	7, // 6: agent.Response.error:type_name -> agent.Error
+	0, // 7: agent.StatusResponse.status:type_name -> agent.HealthStatus
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_guest_agent_proto_agent_proto_init() }
@@ -488,10 +702,13 @@ func file_guest_agent_proto_agent_proto_init() {
 	file_guest_agent_proto_agent_proto_msgTypes[0].OneofWrappers = []any{
 		(*Request_Status)(nil),
 		(*Request_VmRestore)(nil),
+		(*Request_StartTcpVsockProxy)(nil),
+		(*Request_StopTcpVsockProxy)(nil),
 	}
-	file_guest_agent_proto_agent_proto_msgTypes[2].OneofWrappers = []any{
+	file_guest_agent_proto_agent_proto_msgTypes[4].OneofWrappers = []any{
 		(*Response_Status)(nil),
 		(*Response_Ack)(nil),
+		(*Response_Error)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -499,7 +716,7 @@ func file_guest_agent_proto_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_guest_agent_proto_agent_proto_rawDesc), len(file_guest_agent_proto_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

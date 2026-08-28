@@ -20,6 +20,10 @@ const guestAgentPort = 1234
 // connection hangs up (and reaps) the child.
 const guestPtyPort = 1235
 
+// vsockCIDHost is VMADDR_CID_HOST, the well-known vsock CID a guest uses to
+// reach the host.
+const vsockCIDHost = 2
+
 // Status queries the guest agent's health over vsock. It returns an error
 // if the VM isn't reachable (not running, agent not up yet, etc.).
 func (r *Runner) Status(id string) (agentpb.HealthStatus, error) {
@@ -33,15 +37,11 @@ func (r *Runner) Status(id string) (agentpb.HealthStatus, error) {
 	req := &agentpb.Request{
 		RequestType: &agentpb.Request_Status{Status: &agentpb.StatusRequest{}},
 	}
-	if err := writeFramed(conn, req); err != nil {
-		return 0, fmt.Errorf("send status request: %w", err)
+	resp, err := sendRequest(conn, req)
+	if err != nil {
+		return 0, fmt.Errorf("status request: %w", err)
 	}
-
-	resp := &agentpb.StatusResponse{}
-	if err := readFramed(conn, resp); err != nil {
-		return 0, fmt.Errorf("read status response: %w", err)
-	}
-	return resp.GetStatus(), nil
+	return resp.GetStatus().GetStatus(), nil
 }
 
 // NotifyRestore tells the guest agent that this VM was just resumed from a
@@ -62,15 +62,75 @@ func (r *Runner) NotifyRestore(id string) error {
 			},
 		},
 	}
-	if err := writeFramed(conn, req); err != nil {
-		return fmt.Errorf("send restore notification: %w", err)
-	}
-
-	resp := &agentpb.Response{}
-	if err := readFramed(conn, resp); err != nil {
-		return fmt.Errorf("read restore ack: %w", err)
+	if _, err := sendRequest(conn, req); err != nil {
+		return fmt.Errorf("restore notification: %w", err)
 	}
 	return nil
+}
+
+// StartTcpVsockProxy tells vm id's guest agent to open a TCP listener on
+// port inside the guest that forwards connections over vsock to the host
+// (cid=2) at the same port — the guest side of the same port forward whose
+// host side is a systemdPortForwarder unit bridging vsock.sock_<port> to
+// 127.0.0.1:<port>.
+func (r *Runner) StartTcpVsockProxy(id string, port int) error {
+	conn, err := r.DialVsock(id, guestAgentPort)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+
+	req := &agentpb.Request{
+		RequestType: &agentpb.Request_StartTcpVsockProxy{
+			StartTcpVsockProxy: &agentpb.StartTcpVsockProxy{
+				TcpPort:   uint32(port),
+				Cid:       vsockCIDHost,
+				VsockPort: uint32(port),
+			},
+		},
+	}
+	if _, err := sendRequest(conn, req); err != nil {
+		return fmt.Errorf("start tcp-vsock proxy for port %d: %w", port, err)
+	}
+	return nil
+}
+
+// StopTcpVsockProxy tells vm id's guest agent to close the TCP listener on
+// port it opened via StartTcpVsockProxy.
+func (r *Runner) StopTcpVsockProxy(id string, port int) error {
+	conn, err := r.DialVsock(id, guestAgentPort)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+
+	req := &agentpb.Request{
+		RequestType: &agentpb.Request_StopTcpVsockProxy{
+			StopTcpVsockProxy: &agentpb.StopTcpVsockProxy{TcpPort: uint32(port)},
+		},
+	}
+	if _, err := sendRequest(conn, req); err != nil {
+		return fmt.Errorf("stop tcp-vsock proxy for port %d: %w", port, err)
+	}
+	return nil
+}
+
+// sendRequest sends req over conn and returns the guest agent's decoded
+// Response, translating a guest-reported Error into a Go error.
+func sendRequest(conn io.ReadWriter, req *agentpb.Request) (*agentpb.Response, error) {
+	if err := writeFramed(conn, req); err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	resp := &agentpb.Response{}
+	if err := readFramed(conn, resp); err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if e := resp.GetError(); e != nil {
+		return nil, fmt.Errorf("guest agent: %s", e.GetReason())
+	}
+	return resp, nil
 }
 
 // writeFramed encodes m as a 4-byte big-endian length prefix followed by

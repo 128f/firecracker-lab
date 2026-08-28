@@ -65,6 +65,9 @@ func newPortsAddCmd(cfg *Config) *cobra.Command {
 			if err := r.LaunchPortForwards(&state.VM{ID: v.ID, Unit: v.Unit, Ports: []int{port}}); err != nil {
 				return fmt.Errorf("start forward for port %d: %w", port, err)
 			}
+			if err := r.StartTcpVsockProxy(id, port); err != nil {
+				return fmt.Errorf("start guest-side proxy for port %d: %w", port, err)
+			}
 			fmt.Printf("forwarding %s vsock port %d -> host 127.0.0.1:%d\n", id, port, port)
 			return nil
 		},
@@ -116,6 +119,11 @@ func newPortsRmCmd(cfg *Config) *cobra.Command {
 			r := &vm.Runner{DataDir: cfg.DataDir, FirecrackerBin: cfg.FCBin}
 			if err := r.StopPortForwards(&state.VM{ID: v.ID, Unit: v.Unit, Ports: []int{port}}); err != nil {
 				return fmt.Errorf("stop forward for port %d: %w", port, err)
+			}
+			if r.IsAlive(v) {
+				if err := r.StopTcpVsockProxy(id, port); err != nil {
+					return fmt.Errorf("stop guest-side proxy for port %d: %w", port, err)
+				}
 			}
 			fmt.Printf("stopped forwarding %s vsock port %d\n", id, port)
 			return nil
@@ -192,6 +200,14 @@ func newPortsReloadCmd(cfg *Config) *cobra.Command {
 			r := &vm.Runner{DataDir: cfg.DataDir, FirecrackerBin: cfg.FCBin}
 			if err := r.RestartPortForwards(v); err != nil {
 				return err
+			}
+			for _, port := range v.Ports {
+				// Best-effort: a proxy may not currently be running (e.g. the
+				// guest agent restarted), so a stop failure here isn't fatal.
+				_ = r.StopTcpVsockProxy(id, port)
+				if err := r.StartTcpVsockProxy(id, port); err != nil {
+					return fmt.Errorf("restart guest-side proxy for port %d: %w", port, err)
+				}
 			}
 			fmt.Printf("reloaded %d port forward(s) for %s\n", len(v.Ports), id)
 			return nil

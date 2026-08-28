@@ -155,6 +155,7 @@ func (r *Runner) Run(vm *state.VM, imagePath string, attach bool) error {
 	if err := r.LaunchPortForwards(vm); err != nil {
 		return err
 	}
+	r.startGuestPortProxies(vm)
 
 	return r.waitOrBackground(vm, attach)
 }
@@ -487,6 +488,18 @@ func (r *Runner) PortForwardAlive(vmID string, port int) bool {
 	return r.portForwarder().IsAlive(vmID, port)
 }
 
+// startGuestPortProxies tells vm's guest agent to start its side (the
+// guest-local TCP listener) of each of vm.Ports, best-effort: this runs
+// right after boot/restore, when the guest agent may not be reachable yet,
+// so a failure is only logged — same tolerance as NotifyRestore.
+func (r *Runner) startGuestPortProxies(vm *state.VM) {
+	for _, port := range vm.Ports {
+		if err := r.StartTcpVsockProxy(vm.ID, port); err != nil {
+			r.log().Warn("failed to start guest-side port proxy", "vm", vm.ID, "port", port, "error", err)
+		}
+	}
+}
+
 func (r *Runner) Destroy(vm *state.VM) error {
 	r.log().Info("sending halt signal via API", "vm", vm.ID)
 	_ = apiPut(r.SocketPath(vm.ID), "/actions", map[string]string{"action_type": "SendCtrlAltDel"})
@@ -604,6 +617,7 @@ func (r *Runner) Restore(vm *state.VM, snapshotDir string, attach bool) error {
 	if err := r.LaunchPortForwards(vm); err != nil {
 		return err
 	}
+	r.startGuestPortProxies(vm)
 
 	return r.waitOrBackground(vm, attach)
 }
