@@ -13,6 +13,9 @@ deps: firecracker-release vmlinux-bin rootfs-ext4
 build:
     go build -o labctl .
 
+build-guest-agent:
+    cd guest-agent && cargo build --release --target x86_64-unknown-linux-musl
+
 [private]
 firecracker-tgz:
     #!/usr/bin/env bash
