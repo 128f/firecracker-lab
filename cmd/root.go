@@ -46,6 +46,15 @@ func defaultJailerBin() string {
 	return envOr("LABCTL_JAILER_BIN", "jailer")
 }
 
+// defaultJailerUID/GID is the uid/gid jailer runs the VM's firecracker
+// process as, unless overridden by --uid/--gid at `run`/`restore` time.
+// Not persisted per-VM in state, so anything acting on an existing VM
+// without its own --uid/--gid flag (e.g. `ports`) assumes this default too.
+const (
+	defaultJailerUID = 123
+	defaultJailerGID = 123
+)
+
 func Execute() error {
 	cfg := &Config{}
 

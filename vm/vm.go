@@ -413,6 +413,11 @@ func (f *systemdPortForwarder) Launch(vm *state.VM, port int) error {
 		"--collect",
 		"--property", "BindsTo=" + vm.Unit + ".service",
 		"--property", "After=" + vm.Unit + ".service",
+		// Firecracker connects to this socket as r.UID/r.GID (the jailer's
+		// --uid/--gid); socat must create it as the same user or that
+		// connect(2) fails with EACCES (surfaced to the guest as ECONNRESET).
+		"--property", fmt.Sprintf("User=%d", r.UID),
+		"--property", fmt.Sprintf("Group=%d", r.GID),
 		"--",
 		"socat",
 		fmt.Sprintf("UNIX-LISTEN:%s,fork,unlink-early", sockPath),

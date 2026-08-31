@@ -57,7 +57,7 @@ func newPortsAddCmd(cfg *Config) *cobra.Command {
 				return err
 			}
 
-			r := &vm.Runner{DataDir: cfg.DataDir, FirecrackerBin: cfg.FCBin}
+			r := &vm.Runner{DataDir: cfg.DataDir, FirecrackerBin: cfg.FCBin, UID: defaultJailerUID, GID: defaultJailerGID}
 			if !r.IsAlive(v) {
 				fmt.Printf("%s is not running; port %d will start forwarding on its next restore\n", id, port)
 				return nil

@@ -61,8 +61,8 @@ func newRestoreCmd(cfg *Config) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().IntVar(&flagUID, "uid", 123, "uid for jailer vm user")
-	cmd.Flags().IntVar(&flagGID, "gid", 123, "gid for jailer vm user")
+	cmd.Flags().IntVar(&flagUID, "uid", defaultJailerUID, "uid for jailer vm user")
+	cmd.Flags().IntVar(&flagGID, "gid", defaultJailerGID, "gid for jailer vm user")
 	cmd.Flags().BoolVarP(&flagAttachConsole, "attach-console", "a", false, "run VM in foreground, attached to its console (default: detached, runs in background)")
 	cmd.Flags().StringVar(&flagJailerBin, "jailer", defaultJailerBin(), "path to jailer binary (env: LABCTL_JAILER_BIN)")
 
