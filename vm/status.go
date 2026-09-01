@@ -24,12 +24,13 @@ const guestPtyPort = 1235
 // reach the host.
 const vsockCIDHost = 2
 
-// Status queries the guest agent's health over vsock. It returns an error
-// if the VM isn't reachable (not running, agent not up yet, etc.).
-func (r *Runner) Status(id string) (agentpb.HealthStatus, error) {
+// Status queries the guest agent over vsock for its health, cpu/mem usage,
+// and last heartbeat. It returns an error if the VM isn't reachable (not
+// running, agent not up yet, etc.).
+func (r *Runner) Status(id string) (*agentpb.StatusResponse, error) {
 	conn, err := r.DialVsock(id, guestAgentPort)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(2 * time.Second))
@@ -39,9 +40,9 @@ func (r *Runner) Status(id string) (agentpb.HealthStatus, error) {
 	}
 	resp, err := sendRequest(conn, req)
 	if err != nil {
-		return 0, fmt.Errorf("status request: %w", err)
+		return nil, fmt.Errorf("status request: %w", err)
 	}
-	return resp.GetStatus().GetStatus(), nil
+	return resp.GetStatus(), nil
 }
 
 // NotifyRestore tells the guest agent that this VM was just resumed from a
